@@ -3,30 +3,72 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>EMCA Data Session Player</title>
+    <title>EMCA Data Session</title>
     <script src="https://cdn.tailwindcss.com"></script>
 </head>
-<body class="bg-gray-50 text-gray-800 font-sans h-screen flex flex-col overflow-hidden select-none">
+<body class="bg-gray-50 text-gray-800 font-sans h-[100dvh] flex flex-col overflow-hidden select-none">
 
     <div id="app" class="flex flex-col h-full max-w-7xl mx-auto w-full p-4 gap-4" v-cloak @click="closeColorPicker">
         
         <!-- СТАРТОВЫЙ ЭКРАН -->
         <div v-if="!isSessionStarted" class="flex flex-col items-center justify-center h-full relative">
             
-            <div class="absolute top-4 right-4">
+            <div class="absolute top-4 right-4 flex items-center gap-4">
+                <a href="https://github.com/alef1986/emca-data-session-explorer" target="_blank" class="text-gray-400 hover:text-gray-700 transition-colors" title="GitHub Repository">
+                    <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 24 24"><path fill-rule="evenodd" d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z" clip-rule="evenodd"></path></svg>
+                </a>
                 <button @click="toggleLocale" class="text-sm font-bold px-3 py-1.5 rounded-lg border border-gray-300 bg-white hover:bg-gray-100 transition-colors shadow-sm">
                     {{ locale === 'ru' ? 'EN' : 'RU' }}
                 </button>
             </div>
 
-            <div class="bg-white p-8 rounded-2xl shadow-xl border border-gray-200 max-w-lg w-full flex flex-col gap-6">
+            <div class="bg-white p-8 rounded-2xl shadow-xl border border-gray-200 max-w-lg w-full flex flex-col gap-5">
                 <div class="text-center">
                     <h1 class="text-2xl font-bold text-gray-800 mb-2">EMCA Data Session</h1>
                     <p class="text-gray-500 text-sm">{{ t('start_subtitle') }}</p>
                 </div>
 
-                <div class="flex flex-col gap-4">
-                    <!-- Загрузка Аудио -->
+                <!-- ВЫБОР РЕЖИМА -->
+                <div v-if="!sessionMode" class="flex flex-col gap-3">
+                    <button @click="setMode('local')" class="w-full flex items-center gap-3 p-4 rounded-xl border border-gray-200 hover:border-blue-500 hover:bg-blue-50 transition-all text-left">
+                        <div class="bg-blue-100 text-blue-600 p-2 rounded-lg">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-6 h-6"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z" /></svg>
+                        </div>
+                        <div>
+                            <div class="font-bold text-gray-800">{{ t('mode_local') }}</div>
+                            <div class="text-xs text-gray-500">{{ t('mode_local_desc') }}</div>
+                        </div>
+                    </button>
+                    
+                    <button @click="setMode('host')" class="w-full flex items-center gap-3 p-4 rounded-xl border border-gray-200 hover:border-amber-500 hover:bg-amber-50 transition-all text-left">
+                        <div class="bg-amber-100 text-amber-600 p-2 rounded-lg">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-6 h-6"><path stroke-linecap="round" stroke-linejoin="round" d="M18 18.72a9.094 9.094 0 0 0 3.741-.479 3 3 0 0 0-4.682-2.72m.94 3.198.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632l-.037-.666m0 0a3 3 0 1 1 5.684-1.97m0 0A8.954 8.954 0 0 1 12 15a8.954 8.954 0 0 1 5.684 1.97M12 14.25a3.75 3.75 0 1 0 0-7.5 3.75 3.75 0 0 0 0 7.5Z" /></svg>
+                        </div>
+                        <div>
+                            <div class="font-bold text-gray-800">{{ t('mode_host') }}</div>
+                            <div class="text-xs text-gray-500">{{ t('mode_host_desc') }}</div>
+                        </div>
+                    </button>
+
+                    <button @click="setMode('join')" class="w-full flex items-center gap-3 p-4 rounded-xl border border-gray-200 hover:border-emerald-500 hover:bg-emerald-50 transition-all text-left">
+                        <div class="bg-emerald-100 text-emerald-600 p-2 rounded-lg">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-6 h-6"><path stroke-linecap="round" stroke-linejoin="round" d="M13.5 4.5 21 12m0 0-7.5 7.5M21 12H3" /></svg>
+                        </div>
+                        <div>
+                            <div class="font-bold text-gray-800">{{ t('mode_join') }}</div>
+                            <div class="text-xs text-gray-500">{{ t('mode_join_desc') }}</div>
+                        </div>
+                    </button>
+                </div>
+
+                <!-- ВВОД ДАННЫХ ДЛЯ ВЫБРАННОГО РЕЖИМА -->
+                <div v-else class="flex flex-col gap-4">
+                    <button @click="sessionMode = null" class="text-sm text-blue-600 hover:underline flex items-center gap-1 w-max">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-4 h-4"><path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18" /></svg>
+                        {{ t('back') }}
+                    </button>
+
+                    <!-- Загрузка Аудио (обязательно для всех режимов) -->
                     <div 
                         class="border-2 border-dashed rounded-xl p-4 text-center transition-colors relative cursor-pointer"
                         :class="isDraggingAudio ? 'border-blue-500 bg-blue-50 scale-[1.02]' : 'border-gray-300 hover:bg-gray-50'"
@@ -37,14 +79,15 @@
                     >
                         <input type="file" ref="audioStartInput" @change="handleStartAudio" class="hidden" accept="audio/*, video/*">
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 mx-auto text-blue-500 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3" /></svg>
-                        <span class="font-medium text-gray-700 block">{{ t('media_file') }}</span>
+                        <span class="font-medium text-gray-700 block">{{ t('media_file') }} <span class="text-red-500">*</span></span>
                         <span class="text-xs font-mono mt-1 block" :class="audioUrl ? 'text-green-600' : 'text-gray-400'">
                             {{ audioFileName || t('drag_here') }}
                         </span>
                     </div>
 
-                    <!-- Загрузка JSON -->
+                    <!-- Загрузка JSON (Только Локально и Ведущий) -->
                     <div 
+                        v-if="sessionMode === 'local' || sessionMode === 'host'"
                         class="border-2 border-dashed rounded-xl p-4 text-center transition-colors relative cursor-pointer"
                         :class="isDraggingJson ? 'border-amber-500 bg-amber-50 scale-[1.02]' : 'border-gray-300 hover:bg-gray-50'"
                         @click="$refs.jsonStartInput.click()"
@@ -54,27 +97,34 @@
                     >
                         <input type="file" ref="jsonStartInput" @change="handleStartJson" class="hidden" accept=".json">
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 mx-auto text-amber-500 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
-                        <span class="font-medium text-gray-700 block">{{ t('json_file') }}</span>
-                        <span class="text-xs font-mono mt-1 block" :class="transcript.length > 0 ? 'text-green-600' : 'text-gray-400'">
+                        <span class="font-medium text-gray-700 block">{{ t('json_file') }} <span class="text-red-500">*</span></span>
+                        <span class="text-xs font-mono mt-1 block" :class="jsonFileName ? 'text-green-600' : 'text-gray-400'">
                             {{ jsonFileName || t('drag_here') }}
                         </span>
                     </div>
+
+                    <!-- Комната для коллаборации (Ведущий и Участник) -->
+                    <div v-if="sessionMode === 'host' || sessionMode === 'join'" class="flex flex-col mt-2">
+                        <label class="text-sm font-medium text-gray-700 mb-1">{{ t('room_name') }} <span class="text-red-500">*</span></label>
+                        <input type="text" v-model="roomName" :placeholder="t('room_placeholder')" class="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-blue-500 font-mono text-center">
+                    </div>
+                
+                    <button 
+                        @click="startSession" 
+                        :disabled="!isReadyToStart"
+                        class="w-full py-3 rounded-xl font-bold text-white transition-all mt-2"
+                        :class="isReadyToStart ? 'bg-blue-600 hover:bg-blue-700 shadow-md' : 'bg-gray-300 cursor-not-allowed'"
+                    >
+                        <span v-if="isConnectingP2P">
+                            <svg class="animate-spin -ml-1 mr-3 h-5 w-5 text-white inline-block" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                            Connecting...
+                        </span>
+                        <span v-else>{{ t('start_player') }}</span>
+                    </button>
                 </div>
 
-                <button 
-                    @click="startSession" 
-                    :disabled="!isReadyToStart"
-                    class="w-full py-3 rounded-xl font-bold text-white transition-all"
-                    :class="isReadyToStart ? 'bg-blue-600 hover:bg-blue-700 shadow-md' : 'bg-gray-300 cursor-not-allowed'"
-                >
-                    {{ t('start_player') }}
-                </button>
-
-                <div class="mt-2 text-center text-xs text-gray-400">
-                    Developed as part of the research project at 
-                    <a href="https://efremov-systems.com/societal/" target="_blank" class="text-blue-500 hover:underline">
-                        Efremov Systems
-                    </a>
+                <div class="text-center text-xs text-gray-400 space-y-1 mt-4">
+                    <p>Developed as part of the research project at <a href="https://efremov-systems.com/societal/" target="_blank" class="text-blue-500 hover:underline">Efremov Systems</a></p>
                 </div>
             </div>
         </div>
@@ -86,6 +136,13 @@
                 <div class="flex flex-wrap justify-between items-center gap-2">
                     <div class="flex items-center gap-3">
                         <h1 class="text-lg font-semibold">{{ t('title') }}</h1>
+                        
+                        <!-- P2P Status Indicator (Только для совместного режима) -->
+                        <div v-if="sessionMode !== 'local'" class="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border" :class="connectedPeers > 1 ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-gray-50 text-gray-500 border-gray-200'" :title="t('peers_hint')">
+                            <span class="w-2 h-2 rounded-full" :class="connectedPeers > 1 ? 'bg-emerald-500 animate-pulse' : 'bg-gray-400'"></span>
+                            {{ t('peers') }}: {{ connectedPeers }}
+                        </div>
+
                         <span class="text-xs font-normal font-mono bg-gray-100 text-gray-600 px-2 py-1 rounded max-w-[200px] truncate" :title="audioFileName">{{ audioFileName }}</span>
                         <span v-if="isLoopMode" class="text-xs bg-purple-100 text-purple-800 px-2.5 py-1 rounded-full font-medium animate-pulse border border-purple-300">
                             {{ hasActiveLoop ? t('loop_active') : t('draw_loop_hint') }}
@@ -93,11 +150,14 @@
                     </div>
                     
                     <div class="flex flex-wrap items-center gap-3">
+                        <a href="https://github.com/alef1986/emca-data-session-explorer" target="_blank" class="text-gray-400 hover:text-gray-700 transition-colors" title="GitHub Repository">
+                            <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path fill-rule="evenodd" d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z" clip-rule="evenodd"></path></svg>
+                        </a>
+
                         <button @click="toggleLocale" class="text-xs font-bold px-2.5 py-1.5 rounded border border-gray-300 hover:bg-gray-100 transition-colors">
                             {{ locale === 'ru' ? 'EN' : 'RU' }}
                         </button>
                         
-                        <!-- Кнопка Режима Loop -->
                         <button 
                             @click="toggleLoopMode" 
                             class="px-3 py-1.5 rounded-lg text-sm font-medium transition-colors border flex items-center gap-1.5"
@@ -108,14 +168,12 @@
                             Loop
                         </button>
 
-                        <!-- Плей / Стоп -->
                         <button @click="togglePlay" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-1.5 rounded-lg text-sm font-semibold transition-colors focus:outline-none flex items-center gap-1.5 shadow-sm">
                             <svg v-if="!isPlaying" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="w-4 h-4"><path fill-rule="evenodd" d="M4.5 5.653c0-1.427 1.529-2.33 2.779-1.643l11.54 6.347c1.295.712 1.295 2.573 0 3.286L7.28 19.99c-1.25.687-2.779-.217-2.779-1.643V5.653Z" clip-rule="evenodd" /></svg>
                             <svg v-else xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="w-4 h-4"><path fill-rule="evenodd" d="M6.75 5.25a.75.75 0 0 1 .75-.75H9a.75.75 0 0 1 .75.75v13.5a.75.75 0 0 1-.75.75H7.5a.75.75 0 0 1-.75-.75V5.25Zm7.5 0a.75.75 0 0 1 .75-.75h1.5a.75.75 0 0 1 .75.75v13.5a.75.75 0 0 1-.75.75h-1.5a.75.75 0 0 1-.75-.75V5.25Z" clip-rule="evenodd" /></svg>
                             {{ isPlaying ? t('stop') : t('play') }}
                         </button>
 
-                        <!-- Настройки частот АЧХ -->
                         <div class="flex items-center gap-1.5 text-xs text-gray-600 border-l border-gray-300 pl-3">
                             <span class="font-medium">{{ t('freq_range') }}</span>
                             <input 
@@ -124,7 +182,6 @@
                                 @keyup.enter="applyFrequencyRange"
                                 min="0" step="50"
                                 class="w-16 px-1.5 py-1 border border-gray-300 rounded text-center font-mono focus:border-blue-500 focus:outline-none"
-                                title="Min Hz (Enter)"
                             >
                             <span>–</span>
                             <input 
@@ -133,23 +190,23 @@
                                 @keyup.enter="applyFrequencyRange"
                                 min="100" step="100"
                                 class="w-20 px-1.5 py-1 border border-gray-300 rounded text-center font-mono focus:border-blue-500 focus:outline-none"
-                                title="Max Hz (Enter)"
                             >
                             <span>Hz</span>
                         </div>
 
-                        <!-- Зум и обновление -->
-                        <div class="flex items-center gap-2 text-xs text-gray-600 border-l border-gray-300 pl-3">
-                            <span class="font-medium">{{ t('zoom') }}</span>
+                        <div class="flex items-center gap-1.5 text-xs text-gray-600 border-l border-gray-300 pl-3">
+                            <span class="font-medium mr-1">{{ t('zoom') }}</span>
+                            <button @click="zoomOut" class="px-2 py-1 bg-gray-100 hover:bg-gray-200 border border-gray-300 rounded text-gray-700 font-bold transition-colors" title="-">-</button>
                             <input type="range" min="10" max="500" v-model="zoomLevel" @input="onZoom" class="w-24 accent-blue-600 cursor-pointer">
-                            <button @click="applyFrequencyRange" class="bg-gray-100 hover:bg-gray-200 border border-gray-300 text-gray-700 px-2.5 py-1 rounded text-xs font-medium transition-colors">
+                            <button @click="zoomIn" class="px-2 py-1 bg-gray-100 hover:bg-gray-200 border border-gray-300 rounded text-gray-700 font-bold transition-colors" title="+">+</button>
+                            
+                            <button @click="applyFrequencyRange" class="ml-1 bg-gray-100 hover:bg-gray-200 border border-gray-300 text-gray-700 px-2.5 py-1 rounded text-xs font-medium transition-colors">
                                 {{ t('update_spectrogram') }}
                             </button>
                         </div>
                     </div>
                 </div>
                 
-                <!-- Контейнер графика с фиксированной шкалой частот и поддержкой тач-перетаскивания -->
                 <div 
                     class="relative w-full rounded-lg bg-[#1e1e1e] border border-gray-300 overflow-hidden"
                     :class="isLoopMode ? 'cursor-crosshair' : (isDraggingWave ? 'cursor-grabbing' : 'cursor-grab')"
@@ -158,15 +215,14 @@
                     @pointermove="onWavePointerMove"
                     @pointerup="onWavePointerUp"
                     @pointercancel="onWavePointerUp"
+                    @wheel="onWaveWheel"
                 >
                     <div ref="waveformRef" class="w-full"></div>
 
-                    <!-- Неисчезающая шкала частот поверх АЧХ (высота 120px снизу) -->
                     <div class="absolute left-0 bottom-0 h-[120px] w-16 pointer-events-none flex flex-col justify-between py-1 px-1.5 bg-gradient-to-r from-black/80 via-black/40 to-transparent z-10 font-mono text-[10px] text-gray-200 select-none">
                         <span v-for="(label, idx) in freqLabels" :key="idx" class="leading-none drop-shadow">{{ label }}</span>
                     </div>
 
-                    <!-- Подсказка режима навигации в правом верхнем углу волны -->
                     <div class="absolute right-2 top-1.5 pointer-events-none z-10 text-[11px] font-mono px-2 py-0.5 rounded bg-black/60 text-gray-300">
                         {{ isLoopMode ? t('mode_loop_draw') : t('mode_pan_seek') }}
                     </div>
@@ -178,11 +234,11 @@
                 </div>
             </div>
 
-            <!-- Основная рабочая область (Слева: Транскрипт, Справа: Закладки) -->
-            <div class="flex flex-row gap-4 h-full overflow-hidden">
+            <!-- Основная рабочая область -->
+            <div class="flex flex-row gap-4 flex-1 min-h-0 overflow-hidden">
                 
-                <!-- Левая колонка (2/3): Транскрипт -->
-                <div class="w-2/3 bg-white p-4 rounded-xl shadow-sm border border-gray-200 flex flex-col gap-3">
+                <!-- Транскрипт -->
+                <div class="w-2/3 bg-white p-4 rounded-xl shadow-sm border border-gray-200 flex flex-col gap-3 h-full">
                     <div class="flex justify-between items-center">
                         <h2 class="font-semibold text-lg">{{ t('transcript') }}</h2>
                         <label class="flex items-center gap-2 text-sm text-gray-600 cursor-pointer">
@@ -191,8 +247,7 @@
                         </label>
                     </div>
 
-                    <!-- Поиск -->
-                    <div class="flex gap-2 items-center bg-gray-50 p-2 rounded-lg border border-gray-200">
+                    <div class="flex gap-2 items-center bg-gray-50 p-2 rounded-lg border border-gray-200 shrink-0">
                         <input type="text" v-model="searchQuery" @keyup.enter="executeSearch" :placeholder="t('search_placeholder')" class="flex-1 px-3 py-1.5 text-sm rounded-md border border-gray-300 focus:outline-none focus:border-blue-500 select-text">
                         <button @click="executeSearch" class="bg-gray-200 hover:bg-gray-300 text-gray-700 px-3 py-1.5 text-sm rounded-md font-medium transition-colors">{{ t('search_button') }}</button>
                         
@@ -204,7 +259,6 @@
                         <div v-else-if="searchQuery && hasSearched" class="text-xs text-red-500 ml-2">{{ t('not_found') }}</div>
                     </div>
 
-                    <!-- Список субтитров -->
                     <div class="overflow-y-auto flex-1 pr-3 space-y-1.5" ref="transcriptContainer">
                         <div 
                             v-for="line in transcript" :key="line.id" :id="'line-' + line.id"
@@ -215,7 +269,6 @@
                                 isSearchMatch(line.id) && activeLineId !== line.id ? 'ring-2 ring-blue-400' : ''
                             ]"
                         >
-                            <!-- Номер и иконка закладки -->
                             <div class="flex flex-col items-center gap-2 w-10 shrink-0 pt-0.5">
                                 <span class="text-xs font-mono" :class="activeLineId === line.id ? 'text-amber-700 font-bold' : 'text-gray-400'">{{ line.id }}</span>
                                 <button @click.stop="toggleBookmark(line)" class="text-gray-300 hover:text-blue-500 focus:outline-none transition-colors" :class="{ '!text-blue-600': line.is_bookmarked }">
@@ -223,7 +276,6 @@
                                 </button>
                             </div>
 
-                            <!-- Текст субтитра -->
                             <div class="flex-1 cursor-pointer select-text" @click="jumpTo(line.start)">
                                 <div class="flex items-center gap-2 text-xs font-mono text-gray-400 mb-1">
                                     <span>{{ formatTime(line.start) }} – {{ formatTime(line.end) }}</span>
@@ -232,7 +284,6 @@
                                 <p class="text-gray-800 leading-relaxed">{{ line.text }}</p>
                             </div>
 
-                            <!-- Правая цветная полоска для выбора цвета (Пункт 9) -->
                             <div 
                                 @click.stop="toggleColorPicker(line.id)"
                                 class="w-2.5 rounded-r-lg cursor-pointer transition-all absolute right-0 top-0 bottom-0 hover:w-3.5"
@@ -240,7 +291,6 @@
                                 :title="t('color_tag')"
                             ></div>
 
-                            <!-- Всплывающая палитра цветов -->
                             <div 
                                 v-if="openPickerId === line.id" 
                                 @click.stop
@@ -261,31 +311,24 @@
                     </div>
                 </div>
 
-                <!-- Правая колонка (1/3): Закладки (Пункт 8) -->
-                <div class="w-1/3 bg-white p-4 rounded-xl shadow-sm border border-gray-200 flex flex-col">
-                    <div class="flex items-center justify-between mb-4">
+                <!-- Закладки -->
+                <div class="w-1/3 bg-white p-4 rounded-xl shadow-sm border border-gray-200 flex flex-col h-full">
+                    <div class="flex items-center justify-between mb-4 shrink-0">
                         <h2 class="font-semibold text-lg flex items-center gap-2">
                             <span>{{ t('bookmarks') }}</span>
                             <span class="text-sm bg-blue-100 text-blue-800 py-0.5 px-2.5 rounded-full">{{ bookmarkedLines.length }}</span>
                         </h2>
                         
                         <div class="flex gap-2">
-                            <input type="file" ref="fileInput" @change="importBookmarks" class="hidden" accept=".json">
-                            <button @click="$refs.fileInput.click()" class="text-xs bg-gray-100 text-gray-700 hover:bg-gray-200 px-2.5 py-1.5 rounded-lg transition-colors font-medium flex items-center gap-1">
-                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-4 h-4"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5" /></svg>
-                                {{ t('load') }}
-                            </button>
-                            
-                            <button v-if="bookmarkedLines.length > 0" @click="exportBookmarks" class="text-xs bg-emerald-100 text-emerald-800 hover:bg-emerald-200 px-2.5 py-1.5 rounded-lg transition-colors font-medium flex items-center gap-1">
+                            <button @click="exportBookmarks" class="text-xs bg-emerald-100 text-emerald-800 hover:bg-emerald-200 px-2.5 py-1.5 rounded-lg transition-colors font-medium flex items-center gap-1">
                                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-4 h-4"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" /></svg>
-                                {{ t('save') }}
+                                {{ t('save_json') }}
                             </button>
                         </div>
                     </div>
                     
                     <div class="overflow-y-auto flex-1 pr-2 space-y-4" v-if="bookmarkedLines.length > 0">
-                        <div v-for="line in bookmarkedLines" :key="'bookmark-' + line.id" class="p-3 bg-blue-50/50 rounded-lg border border-blue-100 relative overflow-hidden">
-                            <!-- Индикатор цвета в закладке -->
+                        <div v-for="line in bookmarkedLines" :key="'bookmark-' + line.id" class="p-3 bg-blue-50/50 rounded-lg border border-blue-100 relative overflow-hidden shrink-0">
                             <div v-if="line.color" class="absolute right-0 top-0 bottom-0 w-1.5" :class="getColorBarClass(line.color)"></div>
                             
                             <div class="flex justify-between items-start cursor-pointer hover:text-blue-700 transition-colors mb-2 pr-2" @click="jumpTo(line.start)">
@@ -293,7 +336,14 @@
                                 <div class="text-xs text-gray-500 font-mono">{{ formatTime(line.start) }} – {{ formatTime(line.end) }}</div>
                             </div>
                             <p class="text-sm text-gray-700 mb-3 bg-white p-2 rounded border border-gray-100 shadow-sm select-text">{{ line.text }}</p>
-                            <textarea v-model="line.note" rows="3" class="w-full text-sm p-2 rounded-md border border-gray-200 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none resize-y select-text" :placeholder="t('note_placeholder')"></textarea>
+                            
+                            <!-- @input теперь работает через функцию-обертку, отправляя в P2P или локально -->
+                            <textarea 
+                                :value="line.note" 
+                                @input="updateNote(line, $event.target.value)"
+                                rows="3" class="w-full text-sm p-2 rounded-md border border-gray-200 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none resize-y select-text" 
+                                :placeholder="t('note_placeholder')">
+                            </textarea>
                         </div>
                     </div>
                     <div v-else class="text-gray-400 text-sm text-center mt-10">
@@ -321,12 +371,23 @@
 
         const dictionary = {
             ru: {
-                start_subtitle: 'Выберите файлы сессии или перетащите их сюда',
-                media_file: '1. Медиафайл (Аудио/Видео)',
-                json_file: '2. Файл транскрипта (.json)',
+                start_subtitle: 'Выберите формат работы',
+                mode_local: 'Начать работу одному',
+                mode_local_desc: 'Полностью локально, без интернета',
+                mode_host: 'Создать комнату (Ведущий)',
+                mode_host_desc: 'Загрузить JSON и создать P2P сессию',
+                mode_join: 'Подключиться к комнате (Участник)',
+                mode_join_desc: 'Скачать JSON у ведущего и синхронизироваться',
+                back: 'Назад к выбору режима',
+                media_file: 'Медиафайл (Аудио/Видео)',
+                json_file: 'Файл транскрипта (.json)',
+                room_name: 'Имя комнаты (Пароль)',
+                room_placeholder: 'Например: emca-session-123',
                 drag_here: 'Перетащите файл сюда',
                 start_player: 'Запустить плеер',
                 title: 'Дата-сессия',
+                peers: 'Участники',
+                peers_hint: 'Количество человек в сессии',
                 loop: 'Включить режим выделения области на графике для повтора',
                 draw_loop_hint: 'Выделите мышкой/пальцем участок на графике',
                 loop_active: 'Активен повтор участка',
@@ -337,13 +398,12 @@
                 freq_range: 'АЧХ:',
                 zoom: 'Зум:',
                 update_spectrogram: 'Обновить АЧХ',
-                rendering: 'Отрисовка аудиоволны и АЧХ...',
+                rendering: 'Отрисовка...',
                 bookmarks: 'Закладки',
-                load: 'Загрузить',
-                save: 'Сохранить',
+                save_json: 'Скачать Итоговый JSON',
                 line: 'Строка',
                 note_placeholder: 'Ваша аналитическая заметка...',
-                no_bookmarks: 'Нет закладок. Сохраненные данные можно загрузить через кнопку.',
+                no_bookmarks: 'Нет закладок. Нажмите иконку флажка в транскрипте.',
                 transcript: 'Транскрипт',
                 autoscroll: 'Автоскролл',
                 search_placeholder: 'Поиск по тексту...',
@@ -353,12 +413,23 @@
                 color_tag: 'Выбрать цвет маркера строки'
             },
             en: {
-                start_subtitle: 'Select session files or drag and drop them here',
-                media_file: '1. Media File (Audio/Video)',
-                json_file: '2. Transcript File (.json)',
+                start_subtitle: 'Select session mode',
+                mode_local: 'Solo Work (Local)',
+                mode_local_desc: 'Fully offline, no internet required',
+                mode_host: 'Create Room (Host)',
+                mode_host_desc: 'Load JSON and host a P2P session',
+                mode_join: 'Join Room (Guest)',
+                mode_join_desc: 'Download JSON from host and sync',
+                back: 'Back to mode selection',
+                media_file: 'Media File (Audio/Video)',
+                json_file: 'Transcript File (.json)',
+                room_name: 'Room Name (Password)',
+                room_placeholder: 'e.g., emca-session-123',
                 drag_here: 'Drag file here',
                 start_player: 'Start Player',
                 title: 'Data Session',
+                peers: 'Peers',
+                peers_hint: 'Number of people in this session',
                 loop: 'Toggle region loop mode on waveform',
                 draw_loop_hint: 'Drag across the waveform to select a loop region',
                 loop_active: 'Region loop active',
@@ -369,13 +440,12 @@
                 freq_range: 'Freq:',
                 zoom: 'Zoom:',
                 update_spectrogram: 'Update Spectrogram',
-                rendering: 'Rendering waveform and spectrogram...',
+                rendering: 'Rendering...',
                 bookmarks: 'Bookmarks',
-                load: 'Load',
-                save: 'Save',
+                save_json: 'Export Final JSON',
                 line: 'Line',
                 note_placeholder: 'Your analytical note...',
-                no_bookmarks: 'No bookmarks yet. You can load saved data via the button.',
+                no_bookmarks: 'No bookmarks yet. Click the flag icon in the transcript.',
                 transcript: 'Transcript',
                 autoscroll: 'Autoscroll',
                 search_placeholder: 'Search text...',
@@ -402,21 +472,33 @@
                 const t = computed(() => (key) => dictionary[locale.value][key] || key);
                 const toggleLocale = () => { locale.value = locale.value === 'ru' ? 'en' : 'ru'; };
 
+                const sessionMode = ref(null); // 'local' | 'host' | 'join'
                 const isSessionStarted = ref(false);
+                const isConnectingP2P = ref(false);
+                
                 const audioUrl = ref('');
                 const audioFileName = ref('');
                 const jsonFileName = ref('');
+                const roomName = ref('');
                 
                 const isDraggingAudio = ref(false);
                 const isDraggingJson = ref(false);
 
+                // P2P State
+                let ydoc = null;
+                let provider = null;
+                let yTranscript = null;
+                const connectedPeers = ref(1);
+
                 const transcript = ref([]);
+                let localJsonBuffer = null; 
+
                 const currentTime = ref(0);
                 const isPlaying = ref(false);
                 const isAudioReady = ref(false);
                 const zoomLevel = ref(10);
+                const zoomStep = 25;
                 
-                // Настройки частот АЧХ (по умолчанию 0 - 500 Гц по запросу коллеги)
                 const freqMinInput = ref(0);
                 const freqMaxInput = ref(500);
                 const freqMin = ref(0);
@@ -433,29 +515,31 @@
                 let disableDragSelectionFn = null;
                 let zoomRedrawTimer = null;
 
-                // Состояние перетаскивания (Pan) и клика по волне
                 const isDraggingWave = ref(false);
                 let pointerStartX = 0;
                 let initialScrollLeft = 0;
                 let wasDragged = false;
 
-                // Состояние поиска
                 const searchQuery = ref('');
                 const searchResults = ref([]);
                 const currentSearchIndex = ref(0);
                 const hasSearched = ref(false);
 
-                // Состояние Loop
                 const isLoopMode = ref(false);
                 const hasActiveLoop = ref(false);
                 let loopTimeout = null;
 
-                // Состояние палитры цветов
                 const openPickerId = ref(null);
 
-                const isReadyToStart = computed(() => audioUrl.value !== '' && transcript.value.length > 0);
+                const setMode = (mode) => { sessionMode.value = mode; };
 
-                // Вычисление фиксированных меток частот для наложения слева (5 делений)
+                const isReadyToStart = computed(() => {
+                    if (sessionMode.value === 'local') return audioUrl.value !== '' && localJsonBuffer !== null;
+                    if (sessionMode.value === 'host') return audioUrl.value !== '' && localJsonBuffer !== null && roomName.value.trim() !== '';
+                    if (sessionMode.value === 'join') return audioUrl.value !== '' && roomName.value.trim() !== '';
+                    return false;
+                });
+
                 const freqLabels = computed(() => {
                     const min = freqMin.value;
                     const max = freqMax.value;
@@ -474,9 +558,7 @@
                         audioFileName.value = file.name;
                     }
                 };
-
                 const handleStartAudio = (event) => processAudioFile(event.target.files[0]);
-
                 const handleAudioDrop = (event) => {
                     isDraggingAudio.value = false;
                     const file = event.dataTransfer.files[0];
@@ -489,22 +571,20 @@
                         reader.onload = (e) => {
                             try {
                                 const data = JSON.parse(e.target.result);
-                                transcript.value = data.map(line => ({
+                                localJsonBuffer = data.map(line => ({
                                     ...line,
                                     note: line.note || '',
                                     color: line.color || ''
                                 }));
                                 jsonFileName.value = file.name;
                             } catch (err) {
-                                alert("Error reading JSON file. Check format.");
+                                alert("Error reading JSON file.");
                             }
                         };
                         reader.readAsText(file);
                     }
                 };
-
                 const handleStartJson = (event) => processJsonFile(event.target.files[0]);
-
                 const handleJsonDrop = (event) => {
                     isDraggingJson.value = false;
                     const file = event.dataTransfer.files[0];
@@ -515,31 +595,99 @@
                     }
                 };
 
-                const startSession = () => {
-                    if (isReadyToStart.value) {
+                // ДИНАМИЧЕСКАЯ ЗАГРУЗКА P2P БИБЛИОТЕК (ТОЛЬКО ЕСЛИ НУЖНО)
+                const initP2P = async () => {
+                    try {
+                        const yjsModule = await import('https://esm.sh/yjs@13.6.14?bundle');
+                        const webrtcModule = await import('https://esm.sh/y-webrtc@13.0.2?bundle');
+                        
+                        const Y = yjsModule.default || yjsModule;
+                        const WebrtcProvider = webrtcModule.WebrtcProvider;
+
+                        ydoc = new Y.Doc();
+                        provider = new WebrtcProvider('emca-p2p-' + roomName.value.trim(), ydoc, {
+                            signaling: ['wss://signaling.yjs.dev']
+                        });
+
+                        provider.awareness.on('change', () => {
+                            connectedPeers.value = provider.awareness.getStates().size;
+                        });
+
+                        yTranscript = ydoc.getMap('transcript');
+
+                        yTranscript.observe(() => {
+                            const arr = [];
+                            yTranscript.forEach((value) => arr.push(value));
+                            arr.sort((a, b) => a.id - b.id);
+                            transcript.value = arr;
+                        });
+
+                        if (localJsonBuffer && sessionMode.value === 'host') {
+                            ydoc.transact(() => {
+                                localJsonBuffer.forEach(line => {
+                                    yTranscript.set(String(line.id), line);
+                                });
+                            });
+                            localJsonBuffer = null; 
+                        }
+                    } catch (err) {
+                        console.error("Failed to load P2P modules:", err);
+                        alert("Failed to connect to collaboration server. Check your internet connection or firewall.");
+                        isConnectingP2P.value = false;
+                        throw err;
+                    }
+                };
+
+                // Универсальная функция обновления (Локально или через P2P)
+                const applyLineUpdate = (line, updates) => {
+                    if (sessionMode.value === 'local') {
+                        // Локальное мутирование массива (Vue Reactivity)
+                        const index = transcript.value.findIndex(l => l.id === line.id);
+                        if (index !== -1) {
+                            transcript.value[index] = { ...transcript.value[index], ...updates };
+                        }
+                    } else {
+                        // Мутирование Yjs (Сетевая синхронизация)
+                        if (yTranscript) {
+                            const currentLine = yTranscript.get(String(line.id));
+                            yTranscript.set(String(line.id), { ...currentLine, ...updates });
+                        }
+                    }
+                };
+
+                const startSession = async () => {
+                    if (!isReadyToStart.value) return;
+                    
+                    if (sessionMode.value === 'local') {
+                        transcript.value = [...localJsonBuffer];
+                        localJsonBuffer = null;
+                        isSessionStarted.value = true;
+                        nextTick(() => { initPlayer(); });
+                    } else {
+                        isConnectingP2P.value = true;
+                        await initP2P();
+                        isConnectingP2P.value = false;
                         isSessionStarted.value = true;
                         nextTick(() => { initPlayer(); });
                     }
                 };
 
-                // Инициализация / Перерисовка Спектрограммы с учетом границ частот
                 const initSpectrogram = () => {
                     if (!ws) return;
                     if (activeSpectrogramPlugin) {
                         try { activeSpectrogramPlugin.destroy(); } catch (e) {}
                     }
                     activeSpectrogramPlugin = Spectrogram.create({
-                        labels: false, // Отключаем исчезающие нативные метки в пользу нашего фиксированного оверлея
+                        labels: false,
                         height: 120,
                         splitChannels: false,
                         frequencyMin: freqMin.value,
                         frequencyMax: freqMax.value,
-                        fftSamples: 2048 // Повышенная четкость для низких частот (0-500 Гц)
+                        fftSamples: 2048
                     });
                     ws.registerPlugin(activeSpectrogramPlugin);
                 };
 
-                // Применение новых границ частот по Enter или кнопке
                 const applyFrequencyRange = () => {
                     let min = Number(freqMinInput.value);
                     let max = Number(freqMaxInput.value);
@@ -552,20 +700,24 @@
                     initSpectrogram();
                 };
 
+                const getScrollContainer = () => {
+                    if (!ws) return null;
+                    const wrapper = ws.getWrapper();
+                    return wrapper ? wrapper.parentElement : null;
+                };
+
                 const initPlayer = () => {
                     regionsPlugin = RegionsPlugin.create();
 
                     ws = WaveSurfer.create({
                         container: waveformRef.value,
-                        waveColor: '#94a3b8',
-                        progressColor: '#3b82f6',
+                        waveColor: '#60a5fa',
+                        progressColor: '#2563eb',
                         cursorColor: '#ef4444',
                         cursorWidth: 2,
-                        barWidth: 2,
-                        barGap: 1,
-                        barRadius: 2,
                         height: 80,
-                        dragToSeek: false, // Отключаем, чтобы обрабатывать перетаскивание (Pan) и клик вручную
+                        interact: false, 
+                        autoCenter: autoScroll.value,
                         url: audioUrl.value,
                         plugins: [regionsPlugin]
                     });
@@ -577,7 +729,6 @@
                     ws.on('pause', () => { isPlaying.value = false; });
                     ws.on('timeupdate', (time) => { currentTime.value = time; });
 
-                    // Обработка создания региона для Loop на графике
                     regionsPlugin.on('region-created', (region) => {
                         if (activeLoopRegion && activeLoopRegion !== region) {
                             activeLoopRegion.remove();
@@ -589,23 +740,32 @@
                     regionsPlugin.on('region-updated', () => {
                         clearTimeout(loopTimeout);
                     });
-
-                    regionsPlugin.on('region-clicked', (region, e) => {
-                        e.stopPropagation();
-                        ws.setTime(region.start);
-                        if (!isPlaying.value) ws.play();
-                    });
                 };
 
-                // Обработка перетаскивания графика (Pan) и клика (Seek) для мыши и тач-экранов
-                const onWavePointerDown = (e) => {
+                const onWaveWheel = (e) => {
                     if (!ws || !isAudioReady.value) return;
-                    if (isLoopMode.value) return; // В режиме Loop перетаскивание рисует регион
 
+                    if (e.ctrlKey || e.metaKey) {
+                        e.preventDefault();
+                        if (e.deltaY > 0) zoomOut();
+                        else zoomIn();
+                    } else {
+                        const sc = getScrollContainer();
+                        if (sc) {
+                            sc.scrollLeft += (e.deltaX !== 0 ? e.deltaX : e.deltaY);
+                            e.preventDefault();
+                        }
+                    }
+                };
+
+                const onWavePointerDown = (e) => {
+                    if (!ws || !isAudioReady.value || isLoopMode.value) return;
                     isDraggingWave.value = true;
                     wasDragged = false;
                     pointerStartX = e.clientX;
-                    initialScrollLeft = ws.getScroll();
+                    const sc = getScrollContainer();
+                    initialScrollLeft = sc ? sc.scrollLeft : 0;
+                    e.currentTarget.setPointerCapture(e.pointerId);
                 };
 
                 const onWavePointerMove = (e) => {
@@ -615,26 +775,30 @@
                         wasDragged = true;
                     }
                     if (wasDragged) {
-                        ws.setScrollPixels(initialScrollLeft - dx);
+                        const sc = getScrollContainer();
+                        if (sc) sc.scrollLeft = initialScrollLeft - dx;
                     }
                 };
 
                 const onWavePointerUp = (e) => {
                     if (!isDraggingWave.value) return;
                     isDraggingWave.value = false;
+                    e.currentTarget.releasePointerCapture(e.pointerId);
 
-                    // Если пользователь просто кликнул/тапнул без перетаскивания — перематываем в эту точку
                     if (!wasDragged && !isLoopMode.value && ws) {
-                        const rect = waveformRef.value.getBoundingClientRect();
-                        const clickX = e.clientX - rect.left;
-                        const scrollX = ws.getScroll();
+                        const sc = getScrollContainer();
                         const wrapper = ws.getWrapper();
-                        const totalWidth = wrapper ? wrapper.scrollWidth : rect.width;
-                        const duration = ws.getDuration();
-
-                        if (totalWidth > 0 && duration > 0) {
-                            const targetRatio = Math.max(0, Math.min(1, (scrollX + clickX) / totalWidth));
-                            ws.setTime(targetRatio * duration);
+                        if (sc && wrapper) {
+                            const rect = sc.getBoundingClientRect();
+                            const clickX = e.clientX - rect.left;
+                            const scrollX = sc.scrollLeft;
+                            const trueX = scrollX + clickX;
+                            const totalWidth = wrapper.offsetWidth;
+                            
+                            if (totalWidth > 0) {
+                                const targetRatio = Math.max(0, Math.min(1, trueX / totalWidth));
+                                ws.setTime(targetRatio * ws.getDuration());
+                            }
                         }
                     }
                     wasDragged = false;
@@ -644,6 +808,8 @@
                     clearTimeout(loopTimeout);
                     clearTimeout(zoomRedrawTimer);
                     if (ws) ws.destroy(); 
+                    if (provider) provider.destroy();
+                    if (ydoc) ydoc.destroy();
                     if (audioUrl.value) URL.revokeObjectURL(audioUrl.value);
                 });
 
@@ -662,10 +828,20 @@
                     }
                 };
                 
-                const onZoom = (e) => { 
+                const zoomIn = () => {
+                    zoomLevel.value = Math.min(500, Number(zoomLevel.value) + zoomStep);
+                    onZoom();
+                };
+                
+                const zoomOut = () => {
+                    zoomLevel.value = Math.max(10, Number(zoomLevel.value) - zoomStep);
+                    onZoom();
+                };
+
+                const onZoom = () => { 
                     if (!ws) return;
-                    ws.zoom(Number(e.target.value));
-                    // Автоматически перерисовываем АЧХ после завершения движения ползунка зума
+                    ws.zoom(Number(zoomLevel.value));
+                    
                     clearTimeout(zoomRedrawTimer);
                     zoomRedrawTimer = setTimeout(() => {
                         initSpectrogram();
@@ -679,7 +855,6 @@
                     }
                 };
 
-                // Включение / Выключение режима Loop с рисованием региона на графике
                 const toggleLoopMode = () => {
                     isLoopMode.value = !isLoopMode.value;
                     clearTimeout(loopTimeout);
@@ -704,18 +879,31 @@
                     }
                 };
 
-                // Логика цветовой маркировки субтитров
-                const toggleColorPicker = (id) => {
-                    openPickerId.value = openPickerId.value === id ? null : id;
+                const isLineInLoop = (id) => {
+                    if (!isLoopMode.value || !activeLoopRegion) return false;
+                    const line = transcript.value.find(l => l.id === id);
+                    if (!line) return false;
+                    return line.start < activeLoopRegion.end && line.end > activeLoopRegion.start;
                 };
 
-                const closeColorPicker = () => {
-                    openPickerId.value = null;
-                };
+                const toggleColorPicker = (id) => { openPickerId.value = openPickerId.value === id ? null : id; };
+                const closeColorPicker = () => { openPickerId.value = null; };
 
                 const setLineColor = (line, colorKey) => {
-                    line.color = colorKey;
+                    applyLineUpdate(line, { color: colorKey });
                     openPickerId.value = null;
+                };
+
+                const toggleBookmark = (line) => {
+                    const isBookmarked = !line.is_bookmarked;
+                    applyLineUpdate(line, { 
+                        is_bookmarked: isBookmarked, 
+                        note: (isBookmarked && !line.note) ? '' : line.note 
+                    });
+                };
+
+                const updateNote = (line, newNote) => {
+                    applyLineUpdate(line, { note: newNote });
                 };
 
                 const getColorBarClass = (colorKey) => {
@@ -726,11 +914,6 @@
                 const getLineCardClasses = (line) => {
                     const found = colorSwatches.find(s => s.key === (line.color || '')) || colorSwatches[0];
                     return activeLineId.value === line.id ? found.activeCardClass : found.cardClass;
-                };
-
-                const toggleBookmark = (line) => {
-                    line.is_bookmarked = !line.is_bookmarked;
-                    if (line.is_bookmarked && !line.note) line.note = '';
                 };
 
                 const formatTime = (seconds) => {
@@ -800,7 +983,7 @@
 
                 const exportBookmarks = () => {
                     const dataToSave = transcript.value
-                        .filter(l => l.is_bookmarked || l.color)
+                        .filter(l => l.is_bookmarked || l.color || l.note) 
                         .map(l => ({
                             id: l.id,
                             start: l.start,
@@ -814,7 +997,7 @@
                     const url = URL.createObjectURL(blob);
                     const a = document.createElement('a');
                     a.href = url;
-                    a.download = 'bookmarks_notes.json';
+                    a.download = 'emca_session_notes.json';
                     document.body.appendChild(a);
                     a.click();
                     document.body.removeChild(a);
@@ -831,14 +1014,15 @@
                             importedData.forEach(importedLine => {
                                 const line = transcript.value.find(l => l.id === importedLine.id);
                                 if (line) {
-                                    line.is_bookmarked = importedLine.is_bookmarked ?? true;
-                                    line.note = importedLine.note || '';
-                                    line.color = importedLine.color || '';
+                                    applyLineUpdate(line, {
+                                        is_bookmarked: importedLine.is_bookmarked ?? true,
+                                        note: importedLine.note || '',
+                                        color: importedLine.color || ''
+                                    });
                                 }
                             });
                         } catch (err) {
                             alert("Error reading JSON file. Check format.");
-                            console.error(err);
                         }
                     };
                     reader.readAsText(file);
@@ -852,7 +1036,10 @@
 
                 const bookmarkedLines = computed(() => transcript.value.filter(l => l.is_bookmarked));
 
-                // Слежение за временем для работы Loop по региону и автоскролла
+                watch(autoScroll, (newVal) => {
+                    if (ws) ws.setOptions({ autoCenter: newVal });
+                });
+
                 watch(currentTime, async (newTime) => {
                     if (isLoopMode.value && isPlaying.value && activeLoopRegion) {
                         if (newTime >= activeLoopRegion.end) {
@@ -877,10 +1064,14 @@
                     locale,
                     t,
                     toggleLocale,
+                    sessionMode,
+                    setMode,
                     isSessionStarted,
+                    isConnectingP2P,
                     audioUrl,
                     audioFileName,
                     jsonFileName,
+                    roomName,
                     isReadyToStart,
                     isDraggingAudio,
                     isDraggingJson,
@@ -890,10 +1081,13 @@
                     handleJsonDrop,
                     startSession,
                     transcript,
+                    connectedPeers,
                     currentTime,
                     isPlaying,
                     isAudioReady,
                     zoomLevel,
+                    zoomIn,
+                    zoomOut,
                     freqMinInput,
                     freqMaxInput,
                     freqLabels,
@@ -910,6 +1104,7 @@
                     isLoopMode,
                     hasActiveLoop,
                     isDraggingWave,
+                    onWaveWheel,
                     onWavePointerDown,
                     onWavePointerMove,
                     onWavePointerUp,
@@ -925,6 +1120,7 @@
                     getColorBarClass,
                     getLineCardClasses,
                     toggleBookmark,
+                    updateNote,
                     formatTime,
                     executeSearch,
                     nextSearch,
