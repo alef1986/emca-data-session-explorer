@@ -1,0 +1,696 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EMCA Data Session Player</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-50 text-gray-800 font-sans h-screen flex flex-col overflow-hidden">
+
+    <div id="app" class="flex flex-col h-full max-w-7xl mx-auto w-full p-4 gap-4" v-cloak>
+        
+        <!-- СТАРТОВЫЙ ЭКРАН -->
+        <div v-if="!isSessionStarted" class="flex flex-col items-center justify-center h-full relative">
+            
+            <div class="absolute top-4 right-4">
+                <button @click="toggleLocale" class="text-sm font-bold px-3 py-1.5 rounded-lg border border-gray-300 bg-white hover:bg-gray-100 transition-colors shadow-sm">
+                    {{ locale === 'ru' ? 'EN' : 'RU' }}
+                </button>
+            </div>
+
+            <div class="bg-white p-8 rounded-2xl shadow-xl border border-gray-200 max-w-lg w-full flex flex-col gap-6">
+                <div class="text-center">
+                    <h1 class="text-2xl font-bold text-gray-800 mb-2">EMCA Data Session</h1>
+                    <p class="text-gray-500 text-sm">{{ t('start_subtitle') }}</p>
+                </div>
+
+                <div class="flex flex-col gap-4">
+                    <!-- Загрузка Аудио -->
+                    <div 
+                        class="border-2 border-dashed rounded-xl p-4 text-center transition-colors relative cursor-pointer"
+                        :class="isDraggingAudio ? 'border-blue-500 bg-blue-50 scale-[1.02]' : 'border-gray-300 hover:bg-gray-50'"
+                        @click="$refs.audioStartInput.click()"
+                        @dragover.prevent="isDraggingAudio = true"
+                        @dragleave.prevent="isDraggingAudio = false"
+                        @drop.prevent="handleAudioDrop"
+                    >
+                        <input type="file" ref="audioStartInput" @change="handleStartAudio" class="hidden" accept="audio/*, video/*">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 mx-auto text-blue-500 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3" /></svg>
+                        <span class="font-medium text-gray-700 block">{{ t('media_file') }}</span>
+                        <span class="text-xs font-mono mt-1 block" :class="audioUrl ? 'text-green-600' : 'text-gray-400'">
+                            {{ audioFileName || t('drag_here') }}
+                        </span>
+                    </div>
+
+                    <!-- Загрузка JSON -->
+                    <div 
+                        class="border-2 border-dashed rounded-xl p-4 text-center transition-colors relative cursor-pointer"
+                        :class="isDraggingJson ? 'border-amber-500 bg-amber-50 scale-[1.02]' : 'border-gray-300 hover:bg-gray-50'"
+                        @click="$refs.jsonStartInput.click()"
+                        @dragover.prevent="isDraggingJson = true"
+                        @dragleave.prevent="isDraggingJson = false"
+                        @drop.prevent="handleJsonDrop"
+                    >
+                        <input type="file" ref="jsonStartInput" @change="handleStartJson" class="hidden" accept=".json">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 mx-auto text-amber-500 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                        <span class="font-medium text-gray-700 block">{{ t('json_file') }}</span>
+                        <span class="text-xs font-mono mt-1 block" :class="transcript.length > 0 ? 'text-green-600' : 'text-gray-400'">
+                            {{ jsonFileName || t('drag_here') }}
+                        </span>
+                    </div>
+                </div>
+
+                <button 
+                    @click="startSession" 
+                    :disabled="!isReadyToStart"
+                    class="w-full py-3 rounded-xl font-bold text-white transition-all"
+                    :class="isReadyToStart ? 'bg-blue-600 hover:bg-blue-700 shadow-md' : 'bg-gray-300 cursor-not-allowed'"
+                >
+                    {{ t('start_player') }}
+                </button>
+				
+				<div class="mt-4 text-center text-xs text-gray-400">
+                    Developed as part of the research project at 
+                    <a href="https://efremov-systems.com/societal/" target="_blank" class="text-blue-500 hover:underline">
+                        Efremov Systems
+                    </a>
+                </div>
+            </div>
+        </div>
+
+        <!-- РАБОЧИЙ ИНТЕРФЕЙС ПЛЕЕРА -->
+        <template v-else>
+            <!-- Верхняя панель: Волновая форма и Спектрограмма -->
+            <div class="bg-white p-4 rounded-xl shadow-sm border border-gray-200 flex flex-col gap-3 shrink-0">
+                <div class="flex justify-between items-center">
+                    <h1 class="text-xl font-semibold flex items-center gap-3">
+                        {{ t('title') }}
+                        <span class="text-xs font-normal font-mono bg-gray-100 text-gray-600 px-2 py-1 rounded">{{ audioFileName }}</span>
+                    </h1>
+                    
+                    <div class="flex items-center gap-4">
+                        <button @click="toggleLocale" class="text-xs font-bold px-2 py-1 rounded border border-gray-300 hover:bg-gray-100 transition-colors">
+                            {{ locale === 'ru' ? 'EN' : 'RU' }}
+                        </button>
+                        
+                        <button 
+                            @click="toggleLoopMode" 
+                            class="px-3 py-1.5 rounded-lg font-medium transition-colors border flex items-center gap-2"
+                            :class="isLoopMode ? 'bg-purple-100 border-purple-400 text-purple-800 shadow-inner' : 'bg-white border-gray-300 text-gray-600 hover:bg-gray-50'"
+                            :title="t('loop')"
+                        >
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-5 h-5"><path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" /></svg>
+                            Loop
+                        </button>
+
+                        <button @click="togglePlay" class="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2 rounded-lg font-semibold transition-colors focus:outline-none flex items-center gap-2">
+                            <svg v-if="!isPlaying" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="w-5 h-5"><path fill-rule="evenodd" d="M4.5 5.653c0-1.427 1.529-2.33 2.779-1.643l11.54 6.347c1.295.712 1.295 2.573 0 3.286L7.28 19.99c-1.25.687-2.779-.217-2.779-1.643V5.653Z" clip-rule="evenodd" /></svg>
+                            <svg v-else xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="w-5 h-5"><path fill-rule="evenodd" d="M6.75 5.25a.75.75 0 0 1 .75-.75H9a.75.75 0 0 1 .75.75v13.5a.75.75 0 0 1-.75.75H7.5a.75.75 0 0 1-.75-.75V5.25Zm7.5 0a.75.75 0 0 1 .75-.75h1.5a.75.75 0 0 1 .75.75v13.5a.75.75 0 0 1-.75.75h-1.5a.75.75 0 0 1-.75-.75V5.25Z" clip-rule="evenodd" /></svg>
+                            {{ isPlaying ? t('stop') : t('play') }}
+                        </button>
+
+                        <div class="flex items-center gap-2 text-sm text-gray-600 border-l border-gray-300 pl-4">
+                            <span>{{ t('zoom') }}</span>
+                            <input type="range" min="10" max="500" v-model="zoomLevel" @input="onZoom" class="w-24 accent-blue-600">
+                            <button @click="redrawSpectrogram" class="ml-2 bg-gray-200 hover:bg-gray-300 text-gray-700 px-2 py-1 rounded text-xs transition-colors">
+                                {{ t('update_spectrogram') }}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="relative w-full rounded-lg bg-[#1e1e1e] border border-gray-200 overflow-hidden">
+                    <div ref="waveformRef" class="w-full"></div>
+                    <div v-if="!isAudioReady" class="absolute inset-0 bg-white/80 flex items-center justify-center text-gray-500 z-10">
+                        <svg class="animate-spin -ml-1 mr-3 h-5 w-5 text-blue-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                        {{ t('rendering') }}
+                    </div>
+                </div>
+            </div>
+
+            <!-- Основная рабочая область -->
+            <div class="flex flex-row gap-4 h-full overflow-hidden">
+                
+                <!-- Левая колонка: Пульт модератора -->
+                <div class="w-1/3 bg-white p-4 rounded-xl shadow-sm border border-gray-200 flex flex-col">
+                    <div class="flex items-center justify-between mb-4">
+                        <h2 class="font-semibold text-lg flex items-center gap-2">
+                            <span>{{ t('bookmarks') }}</span>
+                            <span class="text-sm bg-blue-100 text-blue-800 py-1 px-2 rounded-full">{{ bookmarkedLines.length }}</span>
+                        </h2>
+                        
+                        <div class="flex gap-2">
+                            <input type="file" ref="fileInput" @change="importBookmarks" class="hidden" accept=".json">
+                            <button @click="$refs.fileInput.click()" class="text-sm bg-gray-100 text-gray-700 hover:bg-gray-200 px-3 py-1.5 rounded-lg transition-colors font-medium flex items-center gap-1">
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-4 h-4"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5" /></svg>
+                                {{ t('load') }}
+                            </button>
+                            
+                            <button v-if="bookmarkedLines.length > 0" @click="exportBookmarks" class="text-sm bg-emerald-100 text-emerald-800 hover:bg-emerald-200 px-3 py-1.5 rounded-lg transition-colors font-medium flex items-center gap-1">
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-4 h-4"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" /></svg>
+                                {{ t('save') }}
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div class="overflow-y-auto flex-1 pr-2 space-y-4" v-if="bookmarkedLines.length > 0">
+                        <div v-for="line in bookmarkedLines" :key="'bookmark-' + line.id" class="p-3 bg-blue-50/50 rounded-lg border border-blue-100">
+                            <div class="flex justify-between items-start cursor-pointer hover:text-blue-700 transition-colors mb-2" @click="handleLineClick(line)">
+                                <div class="text-xs text-blue-600 font-mono font-medium">{{ t('line') }} {{ line.id }}</div>
+                                <div class="text-xs text-gray-500 font-mono">{{ formatTime(line.start) }} – {{ formatTime(line.end) }}</div>
+                            </div>
+                            <p class="text-sm text-gray-700 mb-3 bg-white p-2 rounded border border-white shadow-sm">{{ line.text }}</p>
+                            <textarea v-model="line.note" rows="4" class="w-full text-sm p-2 rounded-md border border-gray-200 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none resize-y" :placeholder="t('note_placeholder')"></textarea>
+                        </div>
+                    </div>
+                    <div v-else class="text-gray-400 text-sm text-center mt-10">
+                        {{ t('no_bookmarks') }}
+                    </div>
+                </div>
+
+                <!-- Правая колонка: Транскрипт -->
+                <div class="w-2/3 bg-white p-4 rounded-xl shadow-sm border border-gray-200 flex flex-col gap-3">
+                    <div class="flex justify-between items-center">
+                        <div class="flex items-center gap-3">
+                            <h2 class="font-semibold text-lg">{{ t('transcript') }}</h2>
+                            <span v-if="isLoopMode" class="text-xs bg-purple-100 text-purple-700 px-2 py-1 rounded font-medium animate-pulse">
+                                {{ t('select_loop') }}
+                            </span>
+                        </div>
+                        <label class="flex items-center gap-2 text-sm text-gray-600 cursor-pointer">
+                            <input type="checkbox" v-model="autoScroll" class="rounded text-blue-600 focus:ring-blue-500">
+                            {{ t('autoscroll') }}
+                        </label>
+                    </div>
+
+                    <div class="flex gap-2 items-center bg-gray-50 p-2 rounded-lg border border-gray-200">
+                        <input type="text" v-model="searchQuery" @keyup.enter="executeSearch" :placeholder="t('search_placeholder')" class="flex-1 px-3 py-1.5 text-sm rounded-md border border-gray-300 focus:outline-none focus:border-blue-500">
+                        <button @click="executeSearch" class="bg-gray-200 hover:bg-gray-300 text-gray-700 px-3 py-1.5 text-sm rounded-md font-medium transition-colors">{{ t('search_button') }}</button>
+                        
+                        <div class="flex items-center gap-1 border-l border-gray-300 pl-2 ml-1" v-if="searchResults.length > 0">
+                            <span class="text-xs text-gray-500 mr-2">{{ currentSearchIndex + 1 }} {{ t('of') }} {{ searchResults.length }}</span>
+                            <button @click="prevSearch" class="p-1.5 hover:bg-gray-200 rounded text-gray-600"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-4 h-4"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7" /></svg></button>
+                            <button @click="nextSearch" class="p-1.5 hover:bg-gray-200 rounded text-gray-600"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-4 h-4"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" /></svg></button>
+                        </div>
+                        <div v-else-if="searchQuery && hasSearched" class="text-xs text-red-500 ml-2">{{ t('not_found') }}</div>
+                    </div>
+
+                    <div class="overflow-y-auto flex-1 pr-4 space-y-1" ref="transcriptContainer">
+                        <div 
+                            v-for="line in transcript" :key="line.id" :id="'line-' + line.id"
+                            class="group flex gap-3 p-2 rounded-lg transition-all duration-150"
+                            :class="{
+                                'bg-yellow-100 shadow-sm border border-yellow-200': activeLineId === line.id && !isLineInLoop(line.id),
+                                'bg-purple-100 ring-2 ring-purple-400': isLineInLoop(line.id),
+                                'ring-2 ring-blue-400 bg-blue-50': isSearchMatch(line.id) && !isLineInLoop(line.id) && activeLineId !== line.id,
+                                'hover:bg-gray-50 border border-transparent': activeLineId !== line.id && !isSearchMatch(line.id) && !isLineInLoop(line.id)
+                            }"
+                        >
+                            <div class="flex flex-col items-center gap-2 w-12 shrink-0 pt-1">
+                                <span class="text-xs font-mono" :class="isLineInLoop(line.id) ? 'text-purple-600 font-bold' : 'text-gray-400'">{{ line.id }}</span>
+                                <button @click="toggleBookmark(line)" class="text-gray-300 hover:text-blue-500 focus:outline-none transition-colors" :class="{ 'text-blue-500': line.is_bookmarked }">
+                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="w-5 h-5"><path fill-rule="evenodd" d="M6.32 2.577a49.255 49.255 0 0 1 11.36 0c1.497.174 2.57 1.46 2.57 2.93V21a.75.75 0 0 1-1.085.67L12 18.089l-7.165 3.583A.75.75 0 0 1 3.75 21V5.507c0-1.47 1.073-2.756 2.57-2.93Z" clip-rule="evenodd" /></svg>
+                                </button>
+                            </div>
+                            <div class="flex-1 cursor-pointer" @click="handleLineClick(line)">
+                                <div class="text-xs font-mono text-gray-400 mb-1" :class="{'text-purple-500': isLineInLoop(line.id)}">
+                                    {{ formatTime(line.start) }} – {{ formatTime(line.end) }}
+                                </div>
+                                <p class="text-gray-800 leading-relaxed">{{ line.text }}</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </template>
+    </div>
+
+    <style>
+        [v-cloak] { display: none; }
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+    </style>
+
+    <script type="module">
+        import { createApp, ref, computed, watch, nextTick, onUnmounted } from 'https://unpkg.com/vue@3/dist/vue.esm-browser.js';
+        import WaveSurfer from 'https://unpkg.com/wavesurfer.js@7/dist/wavesurfer.esm.js';
+        import Spectrogram from 'https://unpkg.com/wavesurfer.js@7/dist/plugins/spectrogram.esm.js';
+
+        const dictionary = {
+            ru: {
+                start_subtitle: 'Выберите файлы сессии или перетащите их сюда',
+                media_file: '1. Медиафайл (Аудио/Видео)',
+                json_file: '2. Файл транскрипта (.json)',
+                drag_here: 'Перетащите файл сюда',
+                start_player: 'Запустить плеер',
+                title: 'Дата-сессия: Анализ фрагмента',
+                loop: 'Выделить фрагмент для зацикливания',
+                play: 'Плей',
+                stop: 'Стоп',
+                zoom: 'Зум:',
+                update_spectrogram: 'Обновить АЧХ',
+                rendering: 'Отрисовка аудиоволны и АЧХ...',
+                bookmarks: 'Закладки',
+                load: 'Загрузить',
+                save: 'Сохранить',
+                line: 'Строка',
+                note_placeholder: 'Ваша аналитическая заметка...',
+                no_bookmarks: 'Нет закладок. Сохраненные данные можно загрузить через кнопку.',
+                transcript: 'Транскрипт',
+                select_loop: 'Выберите начало и конец лупа',
+                autoscroll: 'Автоскролл',
+                search_placeholder: 'Поиск по тексту...',
+                search_button: 'Искать',
+                of: 'из',
+                not_found: 'Ничего не найдено'
+            },
+            en: {
+                start_subtitle: 'Select session files or drag and drop them here',
+                media_file: '1. Media File (Audio/Video)',
+                json_file: '2. Transcript File (.json)',
+                drag_here: 'Drag file here',
+                start_player: 'Start Player',
+                title: 'Data Session: Fragment Analysis',
+                loop: 'Select a fragment to loop',
+                play: 'Play',
+                stop: 'Stop',
+                zoom: 'Zoom:',
+                update_spectrogram: 'Update Spectrogram',
+                rendering: 'Rendering waveform and spectrogram...',
+                bookmarks: 'Bookmarks',
+                load: 'Load',
+                save: 'Save',
+                line: 'Line',
+                note_placeholder: 'Your analytical note...',
+                no_bookmarks: 'No bookmarks yet. You can load saved data via the button.',
+                transcript: 'Transcript',
+                select_loop: 'Select loop start and end',
+                autoscroll: 'Autoscroll',
+                search_placeholder: 'Search text...',
+                search_button: 'Search',
+                of: 'of',
+                not_found: 'Nothing found'
+            }
+        };
+
+        createApp({
+            setup() {
+                const locale = ref('ru');
+                const t = computed(() => (key) => dictionary[locale.value][key] || key);
+
+                const toggleLocale = () => {
+                    locale.value = locale.value === 'ru' ? 'en' : 'ru';
+                };
+
+                const isSessionStarted = ref(false);
+                const audioUrl = ref('');
+                const audioFileName = ref('');
+                const jsonFileName = ref('');
+                
+                const isDraggingAudio = ref(false);
+                const isDraggingJson = ref(false);
+
+                const transcript = ref([]);
+                const currentTime = ref(0);
+                const isPlaying = ref(false);
+                const isAudioReady = ref(false);
+                const zoomLevel = ref(10);
+                
+                const waveformRef = ref(null);
+                const transcriptContainer = ref(null);
+                const autoScroll = ref(true);
+                let ws = null;
+                let activeSpectrogramPlugin = null;
+
+                const searchQuery = ref('');
+                const searchResults = ref([]);
+                const currentSearchIndex = ref(0);
+                const hasSearched = ref(false);
+
+                const isLoopMode = ref(false);
+                const loopStartId = ref(null);
+                const loopEndId = ref(null);
+                let loopTimeout = null;
+
+                const isReadyToStart = computed(() => {
+                    return audioUrl.value !== '' && transcript.value.length > 0;
+                });
+
+                const processAudioFile = (file) => {
+                    if (file) {
+                        audioUrl.value = URL.createObjectURL(file);
+                        audioFileName.value = file.name;
+                    }
+                };
+
+                const handleStartAudio = (event) => processAudioFile(event.target.files[0]);
+
+                const handleAudioDrop = (event) => {
+                    isDraggingAudio.value = false;
+                    const file = event.dataTransfer.files[0];
+                    if (file) processAudioFile(file);
+                };
+
+                const processJsonFile = (file) => {
+                    if (file) {
+                        const reader = new FileReader();
+                        reader.onload = (e) => {
+                            try {
+                                const data = JSON.parse(e.target.result);
+                                transcript.value = data.map(line => ({
+                                    ...line,
+                                    note: line.note || '' 
+                                }));
+                                jsonFileName.value = file.name;
+                            } catch (err) {
+                                alert("Error reading JSON file. Check format.");
+                            }
+                        };
+                        reader.readAsText(file);
+                    }
+                };
+
+                const handleStartJson = (event) => processJsonFile(event.target.files[0]);
+
+                const handleJsonDrop = (event) => {
+                    isDraggingJson.value = false;
+                    const file = event.dataTransfer.files[0];
+                    if (file && file.name.endsWith('.json')) {
+                        processJsonFile(file);
+                    } else if (file) {
+                        alert("Please drop a .json format file.");
+                    }
+                };
+
+                const startSession = () => {
+                    if (isReadyToStart.value) {
+                        isSessionStarted.value = true;
+                        nextTick(() => { initPlayer(); });
+                    }
+                };
+
+                const initSpectrogram = () => {
+                    if (activeSpectrogramPlugin && ws) {
+                        activeSpectrogramPlugin.destroy();
+                    }
+                    activeSpectrogramPlugin = Spectrogram.create({
+                        labels: true,
+                        height: 120,
+                        splitChannels: false,
+                    });
+                    if (ws) ws.registerPlugin(activeSpectrogramPlugin);
+                };
+
+                const initPlayer = () => {
+                    ws = WaveSurfer.create({
+                        container: waveformRef.value,
+                        waveColor: '#94a3b8',
+                        progressColor: '#2563eb',
+                        cursorColor: '#ef4444',
+                        cursorWidth: 2,
+                        barWidth: 2,
+                        barGap: 1,
+                        barRadius: 2,
+                        height: 80,
+                        url: audioUrl.value 
+                    });
+
+                    initSpectrogram();
+
+                    ws.on('ready', () => { isAudioReady.value = true; });
+                    ws.on('play', () => { isPlaying.value = true; });
+                    ws.on('pause', () => { isPlaying.value = false; });
+                    ws.on('timeupdate', (time) => { currentTime.value = time; });
+                };
+
+                onUnmounted(() => { 
+                    clearTimeout(loopTimeout);
+                    if (ws) ws.destroy(); 
+                    if (audioUrl.value) URL.revokeObjectURL(audioUrl.value);
+                });
+
+                const redrawSpectrogram = () => { initSpectrogram(); };
+
+                const togglePlay = () => { 
+                    if (!ws) return;
+                    if (isPlaying.value) {
+                        ws.pause();
+                        clearTimeout(loopTimeout);
+                    } else {
+                        if (isLoopMode.value && loopStartId.value && loopEndId.value) {
+                            const startLine = transcript.value.find(l => l.id === loopStartId.value);
+                            const endLine = transcript.value.find(l => l.id === loopEndId.value);
+                            if (currentTime.value < startLine.start || currentTime.value >= endLine.end) {
+                                ws.setTime(startLine.start);
+                            }
+                        }
+                        ws.play();
+                    }
+                };
+                
+                const onZoom = (e) => { if (ws) ws.zoom(Number(e.target.value)); };
+
+                const jumpTo = (time) => {
+                    if (ws) {
+                        ws.setTime(time);
+                        if (!isPlaying.value) ws.play();
+                    }
+                };
+
+                const handleLineClick = (line) => {
+                    if (isLoopMode.value) {
+                        if (loopStartId.value === null) {
+                            loopStartId.value = line.id;
+                            loopEndId.value = null;
+                        } else if (loopEndId.value === null) {
+                            if (line.id < loopStartId.value) {
+                                loopEndId.value = loopStartId.value;
+                                loopStartId.value = line.id;
+                            } else {
+                                loopEndId.value = line.id;
+                            }
+                        } else {
+                            loopStartId.value = line.id;
+                            loopEndId.value = null;
+                            clearTimeout(loopTimeout);
+                        }
+                    } else {
+                        jumpTo(line.start);
+                    }
+                };
+
+                const toggleLoopMode = () => {
+                    isLoopMode.value = !isLoopMode.value;
+                    if (!isLoopMode.value) {
+                        loopStartId.value = null;
+                        loopEndId.value = null;
+                        clearTimeout(loopTimeout);
+                    } else {
+                        if (ws) ws.pause();
+                    }
+                };
+
+                const isLineInLoop = (id) => {
+                    if (!isLoopMode.value || !loopStartId.value) return false;
+                    if (loopStartId.value === id && !loopEndId.value) return true;
+                    if (loopStartId.value && loopEndId.value) {
+                        return id >= loopStartId.value && id <= loopEndId.value;
+                    }
+                    return false;
+                };
+
+                const toggleBookmark = (line) => {
+                    line.is_bookmarked = !line.is_bookmarked;
+                    if (line.is_bookmarked && !line.note) line.note = '';
+                };
+
+                const formatTime = (seconds) => {
+                    const m = Math.floor(seconds / 60).toString().padStart(2, '0');
+                    const s = Math.floor(seconds % 60).toString().padStart(2, '0');
+                    const ms = Math.floor((seconds % 1) * 10).toString();
+                    return `${m}:${s}.${ms}`;
+                };
+
+                const safeScrollToElement = (id) => {
+                    const element = document.getElementById(id);
+                    const container = transcriptContainer.value;
+                    if (element && container) {
+                        const containerRect = container.getBoundingClientRect();
+                        const elementRect = element.getBoundingClientRect();
+                        const targetTop = container.scrollTop + (elementRect.top - containerRect.top) - (containerRect.height / 2) + (elementRect.height / 2);
+                        container.scrollTo({ top: targetTop, behavior: 'smooth' });
+                    }
+                };
+
+                const executeSearch = () => {
+                    hasSearched.value = true;
+                    const query = searchQuery.value.trim().toLowerCase();
+                    if (!query) {
+                        searchResults.value = [];
+                        return;
+                    }
+                    searchResults.value = transcript.value.filter(line => 
+                        line.text.toLowerCase().includes(query)
+                    );
+                    if (searchResults.value.length > 0) {
+                        currentSearchIndex.value = 0;
+                        navigateToSearchResult();
+                    }
+                };
+
+                const nextSearch = () => {
+                    if (searchResults.value.length === 0) return;
+                    currentSearchIndex.value = (currentSearchIndex.value + 1) % searchResults.value.length;
+                    navigateToSearchResult();
+                };
+
+                const prevSearch = () => {
+                    if (searchResults.value.length === 0) return;
+                    currentSearchIndex.value = (currentSearchIndex.value - 1 + searchResults.value.length) % searchResults.value.length;
+                    navigateToSearchResult();
+                };
+
+                const navigateToSearchResult = () => {
+                    const targetLine = searchResults.value[currentSearchIndex.value];
+                    if (targetLine) {
+                        const previousAutoScroll = autoScroll.value;
+                        autoScroll.value = false;
+                        if (ws && isPlaying.value) ws.pause();
+                        
+                        nextTick(() => {
+                            safeScrollToElement('line-' + targetLine.id);
+                            setTimeout(() => { autoScroll.value = previousAutoScroll; }, 500);
+                        });
+                    }
+                };
+
+                const isSearchMatch = (id) => {
+                    if (searchResults.value.length === 0) return false;
+                    return searchResults.value[currentSearchIndex.value].id === id;
+                };
+
+                const exportBookmarks = () => {
+                    const dataToSave = bookmarkedLines.value.map(l => ({
+                        id: l.id,
+                        start: l.start,
+                        end: l.end,
+                        text: l.text,
+                        note: l.note
+                    }));
+                    const blob = new Blob([JSON.stringify(dataToSave, null, 2)], { type: 'application/json' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = 'bookmarks_notes.json';
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(url);
+                };
+
+                const importBookmarks = (event) => {
+                    const file = event.target.files[0];
+                    if (!file) return;
+                    const reader = new FileReader();
+                    reader.onload = (e) => {
+                        try {
+                            const importedData = JSON.parse(e.target.result);
+                            importedData.forEach(importedLine => {
+                                const line = transcript.value.find(l => l.id === importedLine.id);
+                                if (line) {
+                                    line.is_bookmarked = true;
+                                    line.note = importedLine.note || '';
+                                }
+                            });
+                        } catch (err) {
+                            alert("Error reading JSON file. Check format.");
+                            console.error(err);
+                        }
+                    };
+                    reader.readAsText(file);
+                    event.target.value = '';
+                };
+
+                const activeLineId = computed(() => {
+                    const line = transcript.value.find(l => currentTime.value >= l.start && currentTime.value <= l.end);
+                    return line ? line.id : null;
+                });
+
+                const bookmarkedLines = computed(() => transcript.value.filter(l => l.is_bookmarked));
+
+                watch(currentTime, async (newTime) => {
+                    if (isLoopMode.value && isPlaying.value && loopStartId.value !== null && loopEndId.value !== null) {
+                        const endLine = transcript.value.find(l => l.id === loopEndId.value);
+                        if (endLine && newTime >= endLine.end) {
+                            ws.pause();
+                            loopTimeout = setTimeout(() => {
+                                const startLine = transcript.value.find(l => l.id === loopStartId.value);
+                                if (startLine && isLoopMode.value) {
+                                    ws.setTime(startLine.start);
+                                    ws.play();
+                                }
+                            }, 1000);
+                        }
+                    }
+
+                    const currentId = activeLineId.value;
+                    if (currentId && autoScroll.value) {
+                        await nextTick();
+                        safeScrollToElement('line-' + currentId);
+                    }
+                });
+
+                return {
+                    locale,
+                    t,
+                    toggleLocale,
+                    isSessionStarted,
+                    audioUrl,
+                    audioFileName,
+                    jsonFileName,
+                    isReadyToStart,
+                    isDraggingAudio,
+                    isDraggingJson,
+                    handleStartAudio,
+                    handleStartJson,
+                    handleAudioDrop,
+                    handleJsonDrop,
+                    startSession,
+                    transcript,
+                    currentTime,
+                    isPlaying,
+                    isAudioReady,
+                    zoomLevel,
+                    waveformRef,
+                    transcriptContainer,
+                    autoScroll,
+                    activeLineId,
+                    bookmarkedLines,
+                    searchQuery,
+                    searchResults,
+                    currentSearchIndex,
+                    hasSearched,
+                    isLoopMode,
+                    togglePlay,
+                    onZoom,
+                    redrawSpectrogram,
+                    handleLineClick,
+                    toggleLoopMode,
+                    isLineInLoop,
+                    toggleBookmark,
+                    formatTime,
+                    executeSearch,
+                    nextSearch,
+                    prevSearch,
+                    isSearchMatch,
+                    exportBookmarks,
+                    importBookmarks
+                };
+            }
+        }).mount('#app');
+    </script>
+</body>
+</html>
