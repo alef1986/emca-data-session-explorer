@@ -4,6 +4,10 @@
 
 A buildless, client-side only web application designed specifically for Ethnomethodology and Conversation Analysis (EMCA) data sessions. This tool allows researchers to analyse audio/video fragments locally without uploading sensitive research data to any external servers, ensuring strict privacy compliance (e.g., GDPR/DSGVO).
 
+## Live Demo
+Run the application directly in your browser without installation:
+**[https://alef1986.github.io/emca-data-session-explorer/](https://alef1986.github.io/emca-data-session-explorer/)**
+
 ## Acknowledgements
 This tool was conceptualised and developed as part of the human interface architecture research project at **[Efremov Systems](https://efremov-systems.com/societal/)**.
 
@@ -16,10 +20,9 @@ This tool was conceptualised and developed as part of the human interface archit
 * **Bilingual Interface:** Toggle between English and Russian instantly.
 
 ## How to Use
-1. Download the `index.html` file or clone the repository.
-2. Open `index.html` in any modern web browser.
-3. Drag and drop your media file (`.mp3`, `.wav`, `.mp4`) and your base transcript `.json` file into the start screen.
-4. Click "Start Player".
+1. Open the [Live Demo](https://alef1986.github.io/emca-data-session-explorer/) or download `index.html` locally.
+2. Drag and drop your media file (`.mp3`, `.wav`, `.mp4`) and your base transcript `.json` file into the start screen.
+3. Click "Start Player".
 
 ## Input JSON Structure
 The application expects a base transcript file in JSON format. It must be an array of objects representing individual lines or utterances, following this exact structure:
