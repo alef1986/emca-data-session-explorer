@@ -810,10 +810,21 @@
 
                         ydoc = new Y.Doc();
                         
-                        const providerOpts = { signaling: [activeSignalingServer.value] };
-                        if (roomPassword.value.trim() !== '') {
-                            providerOpts.password = roomPassword.value.trim();
-                        }
+                        const providerOpts = { 
+							signaling: [activeSignalingServer.value],
+							peerOpts: {
+								config: {
+									iceServers: [
+										{ urls: 'stun:stun.l.google.com:19302' },
+										{ urls: 'stun:stun1.l.google.com:19302' },
+										{ urls: 'stun:stun.cloudflare.com:3478' }
+									]
+								}
+							}
+						};
+						if (roomPassword.value.trim() !== '') {
+							providerOpts.password = roomPassword.value.trim();
+						}
 
                         provider = new WebrtcProvider('emca-p2p-' + roomName.value.trim(), ydoc, providerOpts);
 
