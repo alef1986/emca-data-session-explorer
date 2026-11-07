@@ -8,10 +8,10 @@
 </head>
 <body class="bg-gray-50 text-gray-800 font-sans h-[100dvh] flex flex-col overflow-hidden select-none">
 
-    <div id="app" class="flex flex-col h-full max-w-7xl mx-auto w-full p-4 gap-4" v-cloak @click="closeColorPicker">
+    <div id="app" class="flex flex-col h-full max-w-7xl mx-auto w-full p-4 gap-4" v-cloak @click="closePopups">
         
         <!-- СТАРТОВЫЙ ЭКРАН -->
-        <div v-if="!isSessionStarted" class="flex flex-col items-center justify-center h-full relative">
+        <div v-if="!isSessionStarted" class="flex flex-col items-center justify-center h-full relative overflow-y-auto">
             
             <div class="absolute top-4 right-4 flex items-center gap-4">
                 <a href="https://github.com/alef1986/emca-data-session-explorer" target="_blank" class="text-gray-400 hover:text-gray-700 transition-colors" title="GitHub Repository">
@@ -22,7 +22,7 @@
                 </button>
             </div>
 
-            <div class="bg-white p-8 rounded-2xl shadow-xl border border-gray-200 max-w-lg w-full flex flex-col gap-5">
+            <div class="bg-white p-8 rounded-2xl shadow-xl border border-gray-200 max-w-lg w-full flex flex-col gap-5 my-8">
                 <div class="text-center">
                     <h1 class="text-2xl font-bold text-gray-800 mb-2">EMCA Data Session</h1>
                     <p class="text-gray-500 text-sm">{{ t('start_subtitle') }}</p>
@@ -68,7 +68,12 @@
                         {{ t('back') }}
                     </button>
 
-                    <!-- Загрузка Аудио (обязательно для всех режимов) -->
+                    <!-- Имя пользователя -->
+                    <div class="flex flex-col mb-1">
+                        <label class="text-sm font-medium text-gray-700 mb-1">{{ t('user_name') }} <span class="text-red-500">*</span></label>
+                        <input type="text" v-model="userName" :placeholder="t('name_placeholder')" class="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-blue-500 text-sm">
+                    </div>
+
                     <div 
                         class="border-2 border-dashed rounded-xl p-4 text-center transition-colors relative cursor-pointer"
                         :class="isDraggingAudio ? 'border-blue-500 bg-blue-50 scale-[1.02]' : 'border-gray-300 hover:bg-gray-50'"
@@ -78,14 +83,13 @@
                         @drop.prevent="handleAudioDrop"
                     >
                         <input type="file" ref="audioStartInput" @change="handleStartAudio" class="hidden" accept="audio/*, video/*">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 mx-auto text-blue-500 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3" /></svg>
-                        <span class="font-medium text-gray-700 block">{{ t('media_file') }} <span class="text-red-500">*</span></span>
-                        <span class="text-xs font-mono mt-1 block" :class="audioUrl ? 'text-green-600' : 'text-gray-400'">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 mx-auto text-blue-500 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3" /></svg>
+                        <span class="font-medium text-gray-700 block text-sm">{{ t('media_file') }} <span class="text-red-500">*</span></span>
+                        <span class="text-xs font-mono mt-1 block truncate" :class="audioUrl ? 'text-green-600' : 'text-gray-400'">
                             {{ audioFileName || t('drag_here') }}
                         </span>
                     </div>
 
-                    <!-- Загрузка JSON (Только Локально и Ведущий) -->
                     <div 
                         v-if="sessionMode === 'local' || sessionMode === 'host'"
                         class="border-2 border-dashed rounded-xl p-4 text-center transition-colors relative cursor-pointer"
@@ -96,28 +100,34 @@
                         @drop.prevent="handleJsonDrop"
                     >
                         <input type="file" ref="jsonStartInput" @change="handleStartJson" class="hidden" accept=".json">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 mx-auto text-amber-500 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
-                        <span class="font-medium text-gray-700 block">{{ t('json_file') }} <span class="text-red-500">*</span></span>
-                        <span class="text-xs font-mono mt-1 block" :class="jsonFileName ? 'text-green-600' : 'text-gray-400'">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 mx-auto text-amber-500 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                        <span class="font-medium text-gray-700 block text-sm">{{ t('json_file') }} <span class="text-red-500">*</span></span>
+                        <span class="text-xs font-mono mt-1 block truncate" :class="jsonFileName ? 'text-green-600' : 'text-gray-400'">
                             {{ jsonFileName || t('drag_here') }}
                         </span>
                     </div>
 
-                    <!-- Комната для коллаборации (Ведущий и Участник) -->
-                    <div v-if="sessionMode === 'host' || sessionMode === 'join'" class="flex flex-col mt-2">
-                        <label class="text-sm font-medium text-gray-700 mb-1">{{ t('room_name') }} <span class="text-red-500">*</span></label>
-                        <input type="text" v-model="roomName" :placeholder="t('room_placeholder')" class="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-blue-500 font-mono text-center">
+                    <div v-if="sessionMode === 'host' || sessionMode === 'join'" class="flex flex-col gap-3 mt-1 bg-gray-50 p-4 rounded-xl border border-gray-200">
+                        <div class="flex flex-col">
+                            <label class="text-sm font-medium text-gray-700 mb-1">{{ t('room_name') }} <span class="text-red-500">*</span></label>
+                            <input type="text" v-model="roomName" :placeholder="t('room_placeholder')" class="px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none focus:border-blue-500 font-mono text-sm">
+                        </div>
+                        <div class="flex flex-col">
+                            <label class="text-sm font-medium text-gray-700 mb-1">{{ t('room_password') }}</label>
+                            <input type="password" v-model="roomPassword" placeholder="••••••••" class="px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none focus:border-blue-500 font-mono text-sm">
+                            <p class="text-[10px] text-gray-500 mt-1 leading-tight">{{ t('encryption_hint') }}</p>
+                        </div>
                     </div>
                 
                     <button 
                         @click="startSession" 
                         :disabled="!isReadyToStart"
-                        class="w-full py-3 rounded-xl font-bold text-white transition-all mt-2"
+                        class="w-full py-3 rounded-xl font-bold text-white transition-all mt-2 shrink-0"
                         :class="isReadyToStart ? 'bg-blue-600 hover:bg-blue-700 shadow-md' : 'bg-gray-300 cursor-not-allowed'"
                     >
-                        <span v-if="isConnectingP2P">
+                        <span v-if="connectionState === 'connecting'">
                             <svg class="animate-spin -ml-1 mr-3 h-5 w-5 text-white inline-block" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
-                            Connecting...
+                            {{ t('connecting') }}
                         </span>
                         <span v-else>{{ t('start_player') }}</span>
                     </button>
@@ -131,22 +141,57 @@
 
         <!-- РАБОЧИЙ ИНТЕРФЕЙС ПЛЕЕРА -->
         <template v-else>
-            <!-- Верхняя панель: Управление, Волновая форма и Спектрограмма -->
-            <div class="bg-white p-4 rounded-xl shadow-sm border border-gray-200 flex flex-col gap-3 shrink-0">
+            <div class="bg-white p-4 rounded-xl shadow-sm border border-gray-200 flex flex-col gap-3 shrink-0 z-20">
                 <div class="flex flex-wrap justify-between items-center gap-2">
-                    <div class="flex items-center gap-3">
+                    <div class="flex items-center gap-3 relative">
                         <h1 class="text-lg font-semibold">{{ t('title') }}</h1>
                         
-                        <!-- P2P Status Indicator (Только для совместного режима) -->
-                        <div v-if="sessionMode !== 'local'" class="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border" :class="connectedPeers > 1 ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-gray-50 text-gray-500 border-gray-200'" :title="t('peers_hint')">
-                            <span class="w-2 h-2 rounded-full" :class="connectedPeers > 1 ? 'bg-emerald-500 animate-pulse' : 'bg-gray-400'"></span>
-                            {{ t('peers') }}: {{ connectedPeers }}
+                        <!-- P2P STATUS INDICATOR & DROPDOWN -->
+                        <div v-if="sessionMode !== 'local'" class="relative">
+                            <button @click.stop="togglePeersList" 
+                                 class="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium border transition-colors cursor-pointer shadow-inner focus:outline-none"
+                                 :class="{
+                                     'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100': connectionState === 'waiting',
+                                     'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100': connectionState === 'connected',
+                                     'bg-red-50 text-red-700 border-red-200 hover:bg-red-100': connectionState === 'error',
+                                     'bg-gray-50 text-gray-500 border-gray-200 cursor-wait': connectionState === 'connecting'
+                                 }">
+                                 
+                                 <span class="w-2.5 h-2.5 rounded-full" 
+                                       :class="{
+                                           'bg-amber-500 animate-pulse': connectionState === 'waiting',
+                                           'bg-emerald-500': connectionState === 'connected',
+                                           'bg-red-500 animate-bounce': connectionState === 'error',
+                                           'bg-gray-400 animate-pulse': connectionState === 'connecting'
+                                       }"></span>
+                                       
+                                 <span v-if="connectionState === 'connecting'">{{ t('connecting') }}</span>
+                                 <span v-if="connectionState === 'waiting'">{{ t('status_waiting') }} (1)</span>
+                                 <span v-if="connectionState === 'connected'">{{ t('status_connected') }} ({{ connectedPeers }})</span>
+                                 <span v-if="connectionState === 'error'">{{ t('status_error') }}</span>
+                                 
+                                 <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3 ml-1 opacity-70" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" /></svg>
+                            </button>
+
+                            <!-- Всплывающая панель участников -->
+                            <div v-if="showPeersList" @click.stop class="absolute top-full left-0 mt-2 w-64 bg-white border border-gray-200 shadow-xl rounded-lg overflow-hidden z-50">
+                                <div class="px-4 py-2 bg-gray-50 border-b border-gray-100 text-xs font-bold text-gray-500">
+                                    {{ t('peers_list') }} ({{ peersList.length }})
+                                </div>
+                                <ul class="max-h-48 overflow-y-auto">
+                                    <li v-for="peer in peersList" :key="peer.id" class="px-4 py-2.5 border-b border-gray-50 flex flex-col hover:bg-gray-50 transition-colors">
+                                        <div class="flex items-center gap-2">
+                                            <span class="w-2 h-2 rounded-full" :class="peer.isMe ? 'bg-blue-500' : 'bg-emerald-500'"></span>
+                                            <span class="text-sm font-semibold text-gray-800" :class="{'text-blue-700': peer.isMe}">{{ peer.name }}</span>
+                                            <span v-if="peer.isMe" class="text-[10px] bg-blue-100 text-blue-800 px-1.5 rounded">{{ t('you') }}</span>
+                                        </div>
+                                        <span class="text-[10px] text-gray-400 font-mono ml-4">ID: {{ peer.id }}</span>
+                                    </li>
+                                </ul>
+                            </div>
                         </div>
 
-                        <span class="text-xs font-normal font-mono bg-gray-100 text-gray-600 px-2 py-1 rounded max-w-[200px] truncate" :title="audioFileName">{{ audioFileName }}</span>
-                        <span v-if="isLoopMode" class="text-xs bg-purple-100 text-purple-800 px-2.5 py-1 rounded-full font-medium animate-pulse border border-purple-300">
-                            {{ hasActiveLoop ? t('loop_active') : t('draw_loop_hint') }}
-                        </span>
+                        <span class="text-xs font-normal font-mono bg-gray-100 text-gray-600 px-2 py-1 rounded max-w-[150px] truncate" :title="audioFileName">{{ audioFileName }}</span>
                     </div>
                     
                     <div class="flex flex-wrap items-center gap-3">
@@ -174,30 +219,18 @@
                             {{ isPlaying ? t('stop') : t('play') }}
                         </button>
 
-                        <div class="flex items-center gap-1.5 text-xs text-gray-600 border-l border-gray-300 pl-3">
+                        <div class="flex items-center gap-1.5 text-xs text-gray-600 border-l border-gray-300 pl-3 hidden md:flex">
                             <span class="font-medium">{{ t('freq_range') }}</span>
-                            <input 
-                                type="number" 
-                                v-model.number="freqMinInput" 
-                                @keyup.enter="applyFrequencyRange"
-                                min="0" step="50"
-                                class="w-16 px-1.5 py-1 border border-gray-300 rounded text-center font-mono focus:border-blue-500 focus:outline-none"
-                            >
+                            <input type="number" v-model.number="freqMinInput" @keyup.enter="applyFrequencyRange" min="0" step="50" class="w-16 px-1.5 py-1 border border-gray-300 rounded text-center font-mono focus:border-blue-500 focus:outline-none">
                             <span>–</span>
-                            <input 
-                                type="number" 
-                                v-model.number="freqMaxInput" 
-                                @keyup.enter="applyFrequencyRange"
-                                min="100" step="100"
-                                class="w-20 px-1.5 py-1 border border-gray-300 rounded text-center font-mono focus:border-blue-500 focus:outline-none"
-                            >
+                            <input type="number" v-model.number="freqMaxInput" @keyup.enter="applyFrequencyRange" min="100" step="100" class="w-20 px-1.5 py-1 border border-gray-300 rounded text-center font-mono focus:border-blue-500 focus:outline-none">
                             <span>Hz</span>
                         </div>
 
                         <div class="flex items-center gap-1.5 text-xs text-gray-600 border-l border-gray-300 pl-3">
-                            <span class="font-medium mr-1">{{ t('zoom') }}</span>
+                            <span class="font-medium mr-1 hidden md:inline">{{ t('zoom') }}</span>
                             <button @click="zoomOut" class="px-2 py-1 bg-gray-100 hover:bg-gray-200 border border-gray-300 rounded text-gray-700 font-bold transition-colors" title="-">-</button>
-                            <input type="range" min="10" max="500" v-model="zoomLevel" @input="onZoom" class="w-24 accent-blue-600 cursor-pointer">
+                            <input type="range" min="10" max="500" v-model="zoomLevel" @input="onZoom" class="w-20 md:w-24 accent-blue-600 cursor-pointer">
                             <button @click="zoomIn" class="px-2 py-1 bg-gray-100 hover:bg-gray-200 border border-gray-300 rounded text-gray-700 font-bold transition-colors" title="+">+</button>
                             
                             <button @click="applyFrequencyRange" class="ml-1 bg-gray-100 hover:bg-gray-200 border border-gray-300 text-gray-700 px-2.5 py-1 rounded text-xs font-medium transition-colors">
@@ -206,9 +239,25 @@
                         </div>
                     </div>
                 </div>
+
+                <!-- БАННЕР ОШИБКИ СИНХРОНИЗАЦИИ -->
+                <div v-if="syncError" class="mx-0 mt-0 bg-red-50 border border-red-200 p-3 rounded-lg flex justify-between items-center shrink-0 shadow-sm animate-pulse">
+                    <div class="flex items-center gap-3">
+                        <div class="p-2 bg-red-100 text-red-600 rounded-full">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-5 h-5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+                        </div>
+                        <div>
+                            <h3 class="text-red-800 font-bold text-sm">{{ t('status_error') }}</h3>
+                            <p class="text-red-600 text-xs mt-0.5">{{ t('error_advice') }}</p>
+                        </div>
+                    </div>
+                    <button @click="exportBookmarks" class="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-md font-medium text-sm transition-colors shadow-sm whitespace-nowrap">
+                        {{ t('save_json') }}
+                    </button>
+                </div>
                 
                 <div 
-                    class="relative w-full rounded-lg bg-[#1e1e1e] border border-gray-300 overflow-hidden"
+                    class="relative w-full rounded-lg bg-[#1e1e1e] border border-gray-300 overflow-hidden shrink-0"
                     :class="isLoopMode ? 'cursor-crosshair' : (isDraggingWave ? 'cursor-grabbing' : 'cursor-grab')"
                     style="touch-action: none;"
                     @pointerdown="onWavePointerDown"
@@ -237,7 +286,6 @@
             <!-- Основная рабочая область -->
             <div class="flex flex-row gap-4 flex-1 min-h-0 overflow-hidden">
                 
-                <!-- Транскрипт -->
                 <div class="w-2/3 bg-white p-4 rounded-xl shadow-sm border border-gray-200 flex flex-col gap-3 h-full">
                     <div class="flex justify-between items-center">
                         <h2 class="font-semibold text-lg">{{ t('transcript') }}</h2>
@@ -311,7 +359,6 @@
                     </div>
                 </div>
 
-                <!-- Закладки -->
                 <div class="w-1/3 bg-white p-4 rounded-xl shadow-sm border border-gray-200 flex flex-col h-full">
                     <div class="flex items-center justify-between mb-4 shrink-0">
                         <h2 class="font-semibold text-lg flex items-center gap-2">
@@ -337,7 +384,6 @@
                             </div>
                             <p class="text-sm text-gray-700 mb-3 bg-white p-2 rounded border border-gray-100 shadow-sm select-text">{{ line.text }}</p>
                             
-                            <!-- @input теперь работает через функцию-обертку, отправляя в P2P или локально -->
                             <textarea 
                                 :value="line.note" 
                                 @input="updateNote(line, $event.target.value)"
@@ -364,7 +410,7 @@
     </style>
 
     <script type="module">
-        import { createApp, ref, computed, watch, nextTick, onUnmounted } from 'https://unpkg.com/vue@3/dist/vue.esm-browser.js';
+        import { createApp, ref, computed, watch, nextTick, onUnmounted, onMounted } from 'https://unpkg.com/vue@3/dist/vue.esm-browser.js';
         import WaveSurfer from 'https://unpkg.com/wavesurfer.js@7/dist/wavesurfer.esm.js';
         import Spectrogram from 'https://unpkg.com/wavesurfer.js@7/dist/plugins/spectrogram.esm.js';
         import RegionsPlugin from 'https://unpkg.com/wavesurfer.js@7/dist/plugins/regions.esm.js';
@@ -379,15 +425,26 @@
                 mode_join: 'Подключиться к комнате (Участник)',
                 mode_join_desc: 'Скачать JSON у ведущего и синхронизироваться',
                 back: 'Назад к выбору режима',
+                user_name: 'Ваше имя',
+                name_placeholder: 'Как вас видят коллеги',
                 media_file: 'Медиафайл (Аудио/Видео)',
                 json_file: 'Файл транскрипта (.json)',
-                room_name: 'Имя комнаты (Пароль)',
+                room_name: 'Имя комнаты (Публичный канал)',
                 room_placeholder: 'Например: emca-session-123',
+                room_password: 'Пароль шифрования (Опционально)',
+                encryption_hint: 'Включит AES-GCM шифрование для защиты от посторонних',
                 drag_here: 'Перетащите файл сюда',
                 start_player: 'Запустить плеер',
+                connecting: 'Подключение...',
+                status_waiting: 'Ожидание сети',
+                status_connected: 'В сети',
+                status_error: 'Ошибка синхронизации',
+                error_advice: 'Синхронизация прервана. Чтобы не потерять данные, скачайте JSON сейчас, затем обновите страницу и переподключитесь.',
+                peers_list: 'В комнате:',
+                you: 'Вы',
                 title: 'Дата-сессия',
                 peers: 'Участники',
-                peers_hint: 'Количество человек в сессии',
+                peers_hint: 'Нажмите, чтобы увидеть, кто в комнате',
                 loop: 'Включить режим выделения области на графике для повтора',
                 draw_loop_hint: 'Выделите мышкой/пальцем участок на графике',
                 loop_active: 'Активен повтор участка',
@@ -421,15 +478,26 @@
                 mode_join: 'Join Room (Guest)',
                 mode_join_desc: 'Download JSON from host and sync',
                 back: 'Back to mode selection',
+                user_name: 'Your Name',
+                name_placeholder: 'How peers see you',
                 media_file: 'Media File (Audio/Video)',
                 json_file: 'Transcript File (.json)',
-                room_name: 'Room Name (Password)',
+                room_name: 'Room ID (Public Channel)',
                 room_placeholder: 'e.g., emca-session-123',
+                room_password: 'Encryption Password (Optional)',
+                encryption_hint: 'Enables AES-GCM encryption to block uninvited guests',
                 drag_here: 'Drag file here',
                 start_player: 'Start Player',
+                connecting: 'Connecting...',
+                status_waiting: 'Waiting for peers',
+                status_connected: 'Connected',
+                status_error: 'Sync Error',
+                error_advice: 'Sync lost. To prevent data loss, download your JSON now, then refresh the page and reconnect.',
+                peers_list: 'In Room:',
+                you: 'You',
                 title: 'Data Session',
                 peers: 'Peers',
-                peers_hint: 'Number of people in this session',
+                peers_hint: 'Click to see who is in the room',
                 loop: 'Toggle region loop mode on waveform',
                 draw_loop_hint: 'Drag across the waveform to select a loop region',
                 loop_active: 'Region loop active',
@@ -472,14 +540,19 @@
                 const t = computed(() => (key) => dictionary[locale.value][key] || key);
                 const toggleLocale = () => { locale.value = locale.value === 'ru' ? 'en' : 'ru'; };
 
-                const sessionMode = ref(null); // 'local' | 'host' | 'join'
+                const sessionMode = ref(null); 
                 const isSessionStarted = ref(false);
                 const isConnectingP2P = ref(false);
+                const connectionState = ref('connecting'); 
+                const syncError = ref(false);
                 
                 const audioUrl = ref('');
                 const audioFileName = ref('');
                 const jsonFileName = ref('');
+                
+                const userName = ref('');
                 const roomName = ref('');
+                const roomPassword = ref('');
                 
                 const isDraggingAudio = ref(false);
                 const isDraggingJson = ref(false);
@@ -489,6 +562,8 @@
                 let provider = null;
                 let yTranscript = null;
                 const connectedPeers = ref(1);
+                const peersList = ref([]);
+                const showPeersList = ref(false);
 
                 const transcript = ref([]);
                 let localJsonBuffer = null; 
@@ -531,9 +606,19 @@
 
                 const openPickerId = ref(null);
 
+                onMounted(() => {
+                    const savedName = localStorage.getItem('emca_username');
+                    if (savedName) userName.value = savedName;
+                });
+
+                watch(userName, (newVal) => {
+                    localStorage.setItem('emca_username', newVal);
+                });
+
                 const setMode = (mode) => { sessionMode.value = mode; };
 
                 const isReadyToStart = computed(() => {
+                    if (!userName.value.trim()) return false;
                     if (sessionMode.value === 'local') return audioUrl.value !== '' && localJsonBuffer !== null;
                     if (sessionMode.value === 'host') return audioUrl.value !== '' && localJsonBuffer !== null && roomName.value.trim() !== '';
                     if (sessionMode.value === 'join') return audioUrl.value !== '' && roomName.value.trim() !== '';
@@ -595,7 +680,36 @@
                     }
                 };
 
-                // ДИНАМИЧЕСКАЯ ЗАГРУЗКА P2P БИБЛИОТЕК (ТОЛЬКО ЕСЛИ НУЖНО)
+                const updatePeersList = () => {
+                    if (!provider) return;
+                    const states = provider.awareness.getStates();
+                    connectedPeers.value = states.size;
+                    
+                    const arr = [];
+                    states.forEach((state, clientId) => {
+                        arr.push({
+                            id: clientId,
+                            name: state.user?.name || 'Anonymous',
+                            isMe: clientId === ydoc.clientID
+                        });
+                    });
+                    
+                    // Сортируем: Я всегда первый, остальные по алфавиту
+                    arr.sort((a, b) => {
+                        if (a.isMe) return -1;
+                        if (b.isMe) return 1;
+                        return a.name.localeCompare(b.name);
+                    });
+                    peersList.value = arr;
+
+                    if (connectedPeers.value > 1) {
+                        connectionState.value = 'connected';
+                        syncError.value = false; 
+                    } else {
+                        connectionState.value = 'waiting';
+                    }
+                };
+
                 const initP2P = async () => {
                     try {
                         const yjsModule = await import('https://esm.sh/yjs@13.6.14?bundle');
@@ -604,14 +718,23 @@
                         const Y = yjsModule.default || yjsModule;
                         const WebrtcProvider = webrtcModule.WebrtcProvider;
 
+                        connectionState.value = 'waiting';
                         ydoc = new Y.Doc();
-                        provider = new WebrtcProvider('emca-p2p-' + roomName.value.trim(), ydoc, {
-                            signaling: ['wss://signaling.yjs.dev']
+                        
+                        // Включаем E2E Шифрование, если задан пароль
+                        const providerOpts = { signaling: ['wss://signaling.yjs.dev'] };
+                        if (roomPassword.value.trim() !== '') {
+                            providerOpts.password = roomPassword.value.trim();
+                        }
+
+                        provider = new WebrtcProvider('emca-p2p-' + roomName.value.trim(), ydoc, providerOpts);
+
+                        provider.awareness.setLocalStateField('user', {
+                            name: userName.value.trim() || 'User ' + Math.floor(Math.random() * 1000)
                         });
 
-                        provider.awareness.on('change', () => {
-                            connectedPeers.value = provider.awareness.getStates().size;
-                        });
+                        provider.awareness.on('change', updatePeersList);
+                        updatePeersList();
 
                         yTranscript = ydoc.getMap('transcript');
 
@@ -632,26 +755,33 @@
                         }
                     } catch (err) {
                         console.error("Failed to load P2P modules:", err);
-                        alert("Failed to connect to collaboration server. Check your internet connection or firewall.");
+                        connectionState.value = 'error';
+                        syncError.value = true;
                         isConnectingP2P.value = false;
                         throw err;
                     }
                 };
 
-                // Универсальная функция обновления (Локально или через P2P)
                 const applyLineUpdate = (line, updates) => {
-                    if (sessionMode.value === 'local') {
-                        // Локальное мутирование массива (Vue Reactivity)
-                        const index = transcript.value.findIndex(l => l.id === line.id);
-                        if (index !== -1) {
-                            transcript.value[index] = { ...transcript.value[index], ...updates };
+                    try {
+                        if (sessionMode.value === 'local') {
+                            const index = transcript.value.findIndex(l => l.id === line.id);
+                            if (index !== -1) {
+                                transcript.value[index] = { ...transcript.value[index], ...updates };
+                            }
+                        } else {
+                            if (yTranscript) {
+                                const currentLine = yTranscript.get(String(line.id));
+                                yTranscript.set(String(line.id), { ...currentLine, ...updates });
+                            } else {
+                                throw new Error("P2P network object not initialized");
+                            }
                         }
-                    } else {
-                        // Мутирование Yjs (Сетевая синхронизация)
-                        if (yTranscript) {
-                            const currentLine = yTranscript.get(String(line.id));
-                            yTranscript.set(String(line.id), { ...currentLine, ...updates });
-                        }
+                        syncError.value = false;
+                    } catch (e) {
+                        console.error("Sync error:", e);
+                        syncError.value = true;
+                        connectionState.value = 'error';
                     }
                 };
 
@@ -665,10 +795,13 @@
                         nextTick(() => { initPlayer(); });
                     } else {
                         isConnectingP2P.value = true;
-                        await initP2P();
-                        isConnectingP2P.value = false;
-                        isSessionStarted.value = true;
-                        nextTick(() => { initPlayer(); });
+                        connectionState.value = 'connecting';
+                        try {
+                            await initP2P();
+                            isConnectingP2P.value = false;
+                            isSessionStarted.value = true;
+                            nextTick(() => { initPlayer(); });
+                        } catch (e) {}
                     }
                 };
 
@@ -886,8 +1019,20 @@
                     return line.start < activeLoopRegion.end && line.end > activeLoopRegion.start;
                 };
 
-                const toggleColorPicker = (id) => { openPickerId.value = openPickerId.value === id ? null : id; };
-                const closeColorPicker = () => { openPickerId.value = null; };
+                const togglePeersList = () => {
+                    showPeersList.value = !showPeersList.value;
+                    if (showPeersList.value) openPickerId.value = null;
+                };
+
+                const toggleColorPicker = (id) => { 
+                    openPickerId.value = openPickerId.value === id ? null : id;
+                    if (openPickerId.value) showPeersList.value = false;
+                };
+
+                const closePopups = () => {
+                    openPickerId.value = null;
+                    showPeersList.value = false;
+                };
 
                 const setLineColor = (line, colorKey) => {
                     applyLineUpdate(line, { color: colorKey });
@@ -1004,31 +1149,6 @@
                     URL.revokeObjectURL(url);
                 };
 
-                const importBookmarks = (event) => {
-                    const file = event.target.files[0];
-                    if (!file) return;
-                    const reader = new FileReader();
-                    reader.onload = (e) => {
-                        try {
-                            const importedData = JSON.parse(e.target.result);
-                            importedData.forEach(importedLine => {
-                                const line = transcript.value.find(l => l.id === importedLine.id);
-                                if (line) {
-                                    applyLineUpdate(line, {
-                                        is_bookmarked: importedLine.is_bookmarked ?? true,
-                                        note: importedLine.note || '',
-                                        color: importedLine.color || ''
-                                    });
-                                }
-                            });
-                        } catch (err) {
-                            alert("Error reading JSON file. Check format.");
-                        }
-                    };
-                    reader.readAsText(file);
-                    event.target.value = '';
-                };
-
                 const activeLineId = computed(() => {
                     const line = transcript.value.find(l => currentTime.value >= l.start && currentTime.value <= l.end);
                     return line ? line.id : null;
@@ -1068,10 +1188,14 @@
                     setMode,
                     isSessionStarted,
                     isConnectingP2P,
+                    connectionState,
+                    syncError,
                     audioUrl,
                     audioFileName,
                     jsonFileName,
+                    userName,
                     roomName,
+                    roomPassword,
                     isReadyToStart,
                     isDraggingAudio,
                     isDraggingJson,
@@ -1082,6 +1206,9 @@
                     startSession,
                     transcript,
                     connectedPeers,
+                    peersList,
+                    showPeersList,
+                    togglePeersList,
                     currentTime,
                     isPlaying,
                     isAudioReady,
@@ -1115,7 +1242,7 @@
                     colorSwatches,
                     openPickerId,
                     toggleColorPicker,
-                    closeColorPicker,
+                    closePopups,
                     setLineColor,
                     getColorBarClass,
                     getLineCardClasses,
@@ -1126,8 +1253,7 @@
                     nextSearch,
                     prevSearch,
                     isSearchMatch,
-                    exportBookmarks,
-                    importBookmarks
+                    exportBookmarks
                 };
             }
         }).mount('#app');
