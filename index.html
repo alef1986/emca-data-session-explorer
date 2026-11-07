@@ -802,8 +802,8 @@
 
                 const initP2P = async () => {
                     try {
-                        const yjsModule = await import('https://cdn.jsdelivr.net/npm/yjs@13.6.14/+esm');
-                        const webrtcModule = await import('https://cdn.jsdelivr.net/npm/y-webrtc@10.3.0/+esm');
+                        const yjsModule = await import('https://esm.sh/yjs@13.6.18');
+						const webrtcModule = await import('https://esm.sh/y-webrtc@10.3.0?deps=yjs@13.6.18');
                         
                         const Y = yjsModule.default || yjsModule;
                         const WebrtcProvider = webrtcModule.WebrtcProvider;
