@@ -68,56 +68,67 @@
                         {{ t('back') }}
                     </button>
 
+                    <!-- Имя пользователя -->
                     <div class="flex flex-col mb-1">
                         <label class="text-sm font-medium text-gray-700 mb-1">{{ t('user_name') }} <span class="text-red-500">*</span></label>
-                        <input type="text" v-model="userName" :placeholder="t('name_placeholder')" class="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-blue-500 text-sm">
+                        <input type="text" v-model="userName" :placeholder="t('name_placeholder')" class="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-blue-500 text-sm transition-colors" :class="{'border-red-300 bg-red-50': !userName.trim() && highlightErrors}">
                     </div>
 
+                    <!-- Медиафайл -->
                     <div 
                         class="border-2 border-dashed rounded-xl p-4 text-center transition-colors relative cursor-pointer"
-                        :class="isDraggingAudio ? 'border-blue-500 bg-blue-50 scale-[1.02]' : 'border-gray-300 hover:bg-gray-50'"
+                        :class="[
+                            isDraggingAudio ? 'border-blue-500 bg-blue-50 scale-[1.02]' : 'hover:bg-gray-50',
+                            (!audioUrl && highlightErrors) ? 'border-red-300 bg-red-50' : 'border-gray-300'
+                        ]"
                         @click="$refs.audioStartInput.click()"
                         @dragover.prevent="isDraggingAudio = true"
                         @dragleave.prevent="isDraggingAudio = false"
                         @drop.prevent="handleAudioDrop"
                     >
                         <input type="file" ref="audioStartInput" @change="handleStartAudio" class="hidden" accept="audio/*, video/*">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 mx-auto text-blue-500 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3" /></svg>
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 mx-auto mb-2" :class="(!audioUrl && highlightErrors) ? 'text-red-400' : 'text-blue-500'" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3" /></svg>
                         <span class="font-medium text-gray-700 block text-sm">{{ t('media_file') }} <span class="text-red-500">*</span></span>
                         <span class="text-xs font-mono mt-1 block truncate" :class="audioUrl ? 'text-green-600' : 'text-gray-400'">
                             {{ audioFileName || t('drag_here') }}
                         </span>
                     </div>
 
+                    <!-- JSON Транскрипт -->
                     <div 
                         v-if="sessionMode === 'local' || sessionMode === 'host'"
                         class="border-2 border-dashed rounded-xl p-4 text-center transition-colors relative cursor-pointer"
-                        :class="isDraggingJson ? 'border-amber-500 bg-amber-50 scale-[1.02]' : 'border-gray-300 hover:bg-gray-50'"
+                        :class="[
+                            isDraggingJson ? 'border-amber-500 bg-amber-50 scale-[1.02]' : 'hover:bg-gray-50',
+                            (!localJsonBuffer && highlightErrors) ? 'border-red-300 bg-red-50' : 'border-gray-300'
+                        ]"
                         @click="$refs.jsonStartInput.click()"
                         @dragover.prevent="isDraggingJson = true"
                         @dragleave.prevent="isDraggingJson = false"
                         @drop.prevent="handleJsonDrop"
                     >
                         <input type="file" ref="jsonStartInput" @change="handleStartJson" class="hidden" accept=".json">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 mx-auto text-amber-500 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 mx-auto mb-2" :class="(!localJsonBuffer && highlightErrors) ? 'text-red-400' : 'text-amber-500'" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
                         <span class="font-medium text-gray-700 block text-sm">{{ t('json_file') }} <span class="text-red-500">*</span></span>
                         <span class="text-xs font-mono mt-1 block truncate" :class="jsonFileName ? 'text-green-600' : 'text-gray-400'">
                             {{ jsonFileName || t('drag_here') }}
                         </span>
                     </div>
 
+                    <!-- Настройки комнаты P2P -->
                     <div v-if="sessionMode === 'host' || sessionMode === 'join'" class="flex flex-col gap-3 mt-1 bg-gray-50 p-4 rounded-xl border border-gray-200">
                         <div class="flex flex-col">
                             <label class="text-sm font-medium text-gray-700 mb-1">{{ t('room_name') }} <span class="text-red-500">*</span></label>
-                            <input type="text" v-model="roomName" :placeholder="t('room_placeholder')" class="px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none focus:border-blue-500 font-mono text-sm">
+                            <input type="text" v-model="roomName" :placeholder="t('room_placeholder')" class="px-3 py-1.5 border rounded-md focus:outline-none focus:border-blue-500 font-mono text-sm transition-colors" :class="{'border-red-300 bg-red-50': !roomName.trim() && highlightErrors, 'border-gray-300': roomName.trim() || !highlightErrors}">
                         </div>
                         <div class="flex flex-col">
                             <label class="text-sm font-medium text-gray-700 mb-1">{{ t('room_password') }}</label>
                             <input type="password" v-model="roomPassword" placeholder="••••••••" class="px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none focus:border-blue-500 font-mono text-sm">
+                            <p class="text-[10px] text-gray-500 mt-1 leading-tight">{{ t('encryption_hint') }}</p>
                         </div>
                         
-                        <!-- ВЫБОР СИГНАЛЬНОГО СЕРВЕРА -->
-                        <div class="flex flex-col pt-2 border-t border-gray-200">
+                        <!-- Выбор сигнального сервера -->
+                        <div class="flex flex-col pt-2 border-t border-gray-200 mt-1">
                             <label class="text-sm font-medium text-gray-700 mb-1">{{ t('signaling_server') }}</label>
                             <select v-model="serverPreset" class="px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none focus:border-blue-500 text-sm mb-2">
                                 <option value="public">{{ t('server_public') }}</option>
@@ -127,17 +138,29 @@
                         </div>
                     </div>
                 
+                    <!-- ОШИБКА ПОДКЛЮЧЕНИЯ (Отображается до старта плеера) -->
+                    <div v-if="connectionErrorMsg" class="p-3 bg-red-50 border border-red-200 text-red-600 rounded-lg text-sm flex items-start gap-2 shadow-sm animate-pulse">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-5 h-5 shrink-0 mt-0.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+                        <span>{{ connectionErrorMsg }}</span>
+                    </div>
+
+                    <!-- КНОПКА СТАРТА -->
                     <button 
                         @click="startSession" 
-                        :disabled="!isReadyToStart"
-                        class="w-full py-3 rounded-xl font-bold text-white transition-all mt-2 shrink-0"
-                        :class="isReadyToStart ? 'bg-blue-600 hover:bg-blue-700 shadow-md' : 'bg-gray-300 cursor-not-allowed'"
+                        :disabled="!isReadyToStart || isConnectingP2P"
+                        class="w-full py-3 rounded-xl font-bold text-white transition-all mt-2 shrink-0 flex items-center justify-center gap-2"
+                        :class="(isReadyToStart && !isConnectingP2P) ? 'bg-blue-600 hover:bg-blue-700 shadow-md' : 'bg-gray-300 cursor-not-allowed text-gray-500'"
                     >
-                        <span v-if="connectionState === 'connecting'">
-                            <svg class="animate-spin -ml-1 mr-3 h-5 w-5 text-white inline-block" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                        <template v-if="isConnectingP2P">
+                            <svg class="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
                             {{ t('connecting') }}
-                        </span>
-                        <span v-else>{{ t('start_player') }}</span>
+                        </template>
+                        <template v-else-if="!isReadyToStart">
+                            {{ t('fill_required_fields') }}
+                        </template>
+                        <template v-else>
+                            {{ t('start_player') }}
+                        </template>
                     </button>
                 </div>
 
@@ -413,7 +436,7 @@
     </style>
 
     <script type="module">
-        import { createApp, ref, computed, watch, nextTick, onUnmounted, onMounted } from 'https://unpkg.com/vue@3/dist/vue.esm-browser.js';
+        import { createApp, ref, computed, watch, nextTick, onUnmounted } from 'https://unpkg.com/vue@3/dist/vue.esm-browser.js';
         import WaveSurfer from 'https://unpkg.com/wavesurfer.js@7/dist/wavesurfer.esm.js';
         import Spectrogram from 'https://unpkg.com/wavesurfer.js@7/dist/plugins/spectrogram.esm.js';
         import RegionsPlugin from 'https://unpkg.com/wavesurfer.js@7/dist/plugins/regions.esm.js';
@@ -441,11 +464,13 @@
                 server_custom: 'Свой сервер (Custom)',
                 custom_url: 'URL сервера (wss://...)',
                 drag_here: 'Перетащите файл сюда',
+                fill_required_fields: 'Заполните обязательные поля *',
                 start_player: 'Запустить плеер',
                 connecting: 'Подключение...',
                 status_waiting: 'Ожидание сети',
                 status_connected: 'В сети',
                 status_error: 'Ошибка синхронизации',
+                error_connection: 'Ошибка соединения: Сервер недоступен или отклонил запрос. Проверьте адрес и секретный путь.',
                 error_advice: 'Синхронизация прервана. Чтобы не потерять данные, скачайте JSON сейчас, затем обновите страницу и переподключитесь.',
                 peers_list: 'В комнате:',
                 you: 'Вы',
@@ -498,11 +523,13 @@
                 server_custom: 'Custom Server',
                 custom_url: 'Server URL (wss://...)',
                 drag_here: 'Drag file here',
+                fill_required_fields: 'Fill required fields *',
                 start_player: 'Start Player',
                 connecting: 'Connecting...',
                 status_waiting: 'Waiting for peers',
                 status_connected: 'Connected',
                 status_error: 'Sync Error',
+                error_connection: 'Connection error: Server is unreachable or denied access. Check the URL and secret path.',
                 error_advice: 'Sync lost. To prevent data loss, download your JSON now, then refresh the page and reconnect.',
                 peers_list: 'In Room:',
                 you: 'You',
@@ -554,14 +581,19 @@
                 const sessionMode = ref(null); 
                 const isSessionStarted = ref(false);
                 const isConnectingP2P = ref(false);
-                const connectionState = ref('connecting'); 
+                const connectionState = ref('disconnected'); 
                 const syncError = ref(false);
+                const connectionErrorMsg = ref('');
+                const highlightErrors = ref(false);
                 
                 const audioUrl = ref('');
                 const audioFileName = ref('');
                 const jsonFileName = ref('');
                 
-                const userName = ref('');
+                // Инициализация имени пользователя и очистка localStorage от возможного мусора
+                const defaultName = 'User ' + Math.floor(Math.random() * 1000);
+                const userName = ref(localStorage.getItem('emca_username') || defaultName);
+                
                 const roomName = ref('');
                 const roomPassword = ref('');
                 
@@ -571,7 +603,6 @@
                 const isDraggingAudio = ref(false);
                 const isDraggingJson = ref(false);
 
-                // P2P State
                 let ydoc = null;
                 let provider = null;
                 let yTranscript = null;
@@ -580,7 +611,9 @@
                 const showPeersList = ref(false);
 
                 const transcript = ref([]);
-                let localJsonBuffer = null; 
+                
+                // КЛЮЧЕВОЙ ФИКС: Делаем буфер JSON реактивным
+                const localJsonBuffer = ref(null); 
 
                 const currentTime = ref(0);
                 const isPlaying = ref(false);
@@ -624,21 +657,16 @@
                     return serverPreset.value === 'public' ? 'wss://signaling.yjs.dev' : customServerUrl.value;
                 });
 
-                onMounted(() => {
-                    const savedName = localStorage.getItem('emca_username');
-                    if (savedName) userName.value = savedName;
-                });
-
                 watch(userName, (newVal) => {
                     localStorage.setItem('emca_username', newVal);
                 });
 
-                const setMode = (mode) => { sessionMode.value = mode; };
+                const setMode = (mode) => { sessionMode.value = mode; highlightErrors.value = false; connectionErrorMsg.value = ''; };
 
                 const isReadyToStart = computed(() => {
                     if (!userName.value.trim()) return false;
-                    if (sessionMode.value === 'local') return audioUrl.value !== '' && localJsonBuffer !== null;
-                    if (sessionMode.value === 'host') return audioUrl.value !== '' && localJsonBuffer !== null && roomName.value.trim() !== '';
+                    if (sessionMode.value === 'local') return audioUrl.value !== '' && localJsonBuffer.value !== null;
+                    if (sessionMode.value === 'host') return audioUrl.value !== '' && localJsonBuffer.value !== null && roomName.value.trim() !== '';
                     if (sessionMode.value === 'join') return audioUrl.value !== '' && roomName.value.trim() !== '';
                     return false;
                 });
@@ -674,7 +702,7 @@
                         reader.onload = (e) => {
                             try {
                                 const data = JSON.parse(e.target.result);
-                                localJsonBuffer = data.map(line => ({
+                                localJsonBuffer.value = data.map(line => ({
                                     ...line,
                                     note: line.note || '',
                                     color: line.color || ''
@@ -726,6 +754,27 @@
                         connectionState.value = 'waiting';
                     }
                 };
+                
+                const checkServerConnection = (url) => {
+                    return new Promise((resolve, reject) => {
+                        const ws = new WebSocket(url);
+                        const timeout = setTimeout(() => {
+                            ws.close();
+                            reject(new Error(t('error_connection')));
+                        }, 5000);
+
+                        ws.onopen = () => {
+                            clearTimeout(timeout);
+                            ws.close();
+                            resolve();
+                        };
+
+                        ws.onerror = (e) => {
+                            clearTimeout(timeout);
+                            reject(new Error(t('error_connection')));
+                        };
+                    });
+                };
 
                 const initP2P = async () => {
                     try {
@@ -735,7 +784,6 @@
                         const Y = yjsModule.default || yjsModule;
                         const WebrtcProvider = webrtcModule.WebrtcProvider;
 
-                        connectionState.value = 'waiting';
                         ydoc = new Y.Doc();
                         
                         const providerOpts = { signaling: [activeSignalingServer.value] };
@@ -761,20 +809,18 @@
                             transcript.value = arr;
                         });
 
-                        if (localJsonBuffer && sessionMode.value === 'host') {
+                        if (localJsonBuffer.value && sessionMode.value === 'host') {
                             ydoc.transact(() => {
-                                localJsonBuffer.forEach(line => {
+                                localJsonBuffer.value.forEach(line => {
                                     yTranscript.set(String(line.id), line);
                                 });
                             });
-                            localJsonBuffer = null; 
+                            localJsonBuffer.value = null; 
                         }
                     } catch (err) {
                         console.error("Failed to load P2P modules:", err);
-                        connectionState.value = 'error';
                         syncError.value = true;
-                        isConnectingP2P.value = false;
-                        throw err;
+                        throw new Error(t('error_connection'));
                     }
                 };
 
@@ -802,22 +848,29 @@
                 };
 
                 const startSession = async () => {
+                    highlightErrors.value = true;
                     if (!isReadyToStart.value) return;
                     
+                    connectionErrorMsg.value = '';
+                    
                     if (sessionMode.value === 'local') {
-                        transcript.value = [...localJsonBuffer];
-                        localJsonBuffer = null;
+                        transcript.value = [...localJsonBuffer.value];
+                        localJsonBuffer.value = null;
                         isSessionStarted.value = true;
                         nextTick(() => { initPlayer(); });
                     } else {
                         isConnectingP2P.value = true;
-                        connectionState.value = 'connecting';
                         try {
+                            await checkServerConnection(activeSignalingServer.value);
                             await initP2P();
+                            connectionState.value = 'waiting';
                             isConnectingP2P.value = false;
                             isSessionStarted.value = true;
                             nextTick(() => { initPlayer(); });
-                        } catch (e) {}
+                        } catch (e) {
+                            isConnectingP2P.value = false;
+                            connectionErrorMsg.value = e.message;
+                        }
                     }
                 };
 
@@ -1231,6 +1284,8 @@
                     isConnectingP2P,
                     connectionState,
                     syncError,
+                    connectionErrorMsg,
+                    highlightErrors,
                     audioUrl,
                     audioFileName,
                     jsonFileName,
