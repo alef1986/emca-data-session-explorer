@@ -12,55 +12,40 @@ Run the application directly in your browser without installation:
 This tool was conceptualised and developed as part of the human interface architecture research project at **[Efremov Systems](https://efremov-systems.com/societal/)**.
 
 ## Features
-* **100% Client-Side Audio Processing:** Media files never leave your machine.
-* **Real-Time P2P Collaboration (Beta):** Sync transcripts, bookmarks, and analytical notes with colleagues in real time via end-to-end encrypted WebRTC (no central database required).
-* **Interactive Waveform & Spectrogram:** Visualise pitch, overlapping speech, and micro-pauses using open-source audio visualisation libraries.
-* **Smart Synchronisation:** Click a transcript line to jump to the exact millisecond, or watch the transcript auto-scroll seamlessly as the media plays.
-* **Loop Mode:** Draw a region directly on the waveform to continuously loop a specific conversational fragment.
-* **Analytical Bookmarks & Colour Tags:** Bookmark lines, assign colour codes to specific speakers or phenomena, add analytical notes directly in the interface, and export the consolidated JSON.
-* **Bilingual Interface:** Toggle between English and Russian instantly.
+* **Multi-modal Analysis:** Synchronized playback of media and interactive audio spectrograms.
+* **P2P Collaboration:** Real-time synchronization of transcript navigation, highlights, and analytical notes via WebRTC.
+* **Privacy-First:** Media files and transcript data never leave your local machine or your P2P mesh network. No centralized storage.
+* **Local & Host/Join Modes:** Work fully offline in solo mode, or create a secure P2P room to invite peers.
+* **Analytical Tools:** Frequency range adjustments, waveform looping, transcript autoscroll, and dynamic coloring.
 
-## Modes of Operation
-When launching the player, you can choose between three workflows depending on your session type:
+## Getting Started
 
-### 1. Solo Work (Local)
-Fully offline mode for individual analysis. Load your media file and transcript JSON. No network connection is used, and the session runs entirely in your local browser memory.
+The application is buildless and runs directly in the browser using native ES modules. 
 
-### 2. Create Room (Host) — *In Testing*
-Start a collaborative session. You must load your local media file and the base transcript `.json` file, then create a secret Room Name (password). The application establishes a secure Peer-to-Peer (P2P) session for colleagues to join.
+1. **Host a Session (Host)**
+   * Enter your Name, a Room ID, and an optional Encryption Password.
+   * Provide the Signaling Server URL.
+   * Load the Media File (Audio/Video) and the Transcript File (`.json`).
+   * Share the Room ID, Password, and Signaling Server URL with your peers.
 
-### 3. Join Room (Guest) — *In Testing*
-Join an existing collaborative session. You must load *only your local copy of the media file* and enter the Room Name provided by the host. The transcript, notes, and colour tags will sync automatically from the host in milliseconds.
+2. **Join a Session (Guest)**
+   * Enter your Name, the shared Room ID, Password, and Signaling Server URL.
+   * Load the **Media File only** (the transcript and notes will automatically sync from the Host over the P2P network).
 
-> **Note on Collaborative Mode (Beta):** The P2P collaboration feature is currently in active testing. It utilises Yjs and WebRTC to sync text data directly between browsers. For strict privacy and performance reasons, **your audio/video files are never transmitted over the network**. Every participant must have a local copy of the media file on their own device to participate in a shared session.
+3. **Solo Work (Local)**
+   * Simply provide the Media File and the Transcript JSON. No internet connection or signaling server is required.
 
-## Input JSON Structure (For Solo & Host Modes)
-The application expects a base transcript file in JSON format. It must be an array of objects representing individual lines or utterances, following this exact structure:
-
+## Transcript JSON Format
+The application expects an array of objects for the transcript:
 ```json
 [
   {
     "id": 1,
-    "start": 0.0,
-    "end": 2.2,
-    "text": "Right, hello.",
-    "is_bookmarked": false
-  },
-  {
-    "id": 2,
-    "start": 2.5,
-    "end": 4.1,
-    "text": "This is the original speech with um and uh.",
+    "start": 0.5,
+    "end": 3.2,
+    "text": "Hello, colleagues.",
+    "color": "",
+    "note": "",
     "is_bookmarked": false
   }
 ]
-```
-
-### Field Reference
-* `id` (Integer): The sequential line number.
-* `start` (Float): Start time in seconds (e.g., 2.5).
-* `end` (Float): End time in seconds (e.g., 4.1).
-* `text` (String): The transcribed text.
-* `is_bookmarked` (Boolean): Must be set to `false` by default.
-
-*(Note: The application will automatically append an empty `"note"` field to these objects internally when loaded into the player, allowing you to save your analysis later).*
