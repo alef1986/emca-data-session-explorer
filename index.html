@@ -68,7 +68,6 @@
                         {{ t('back') }}
                     </button>
 
-                    <!-- Имя пользователя -->
                     <div class="flex flex-col mb-1">
                         <label class="text-sm font-medium text-gray-700 mb-1">{{ t('user_name') }} <span class="text-red-500">*</span></label>
                         <input type="text" v-model="userName" :placeholder="t('name_placeholder')" class="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-blue-500 text-sm">
@@ -115,7 +114,16 @@
                         <div class="flex flex-col">
                             <label class="text-sm font-medium text-gray-700 mb-1">{{ t('room_password') }}</label>
                             <input type="password" v-model="roomPassword" placeholder="••••••••" class="px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none focus:border-blue-500 font-mono text-sm">
-                            <p class="text-[10px] text-gray-500 mt-1 leading-tight">{{ t('encryption_hint') }}</p>
+                        </div>
+                        
+                        <!-- ВЫБОР СИГНАЛЬНОГО СЕРВЕРА -->
+                        <div class="flex flex-col pt-2 border-t border-gray-200">
+                            <label class="text-sm font-medium text-gray-700 mb-1">{{ t('signaling_server') }}</label>
+                            <select v-model="serverPreset" class="px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none focus:border-blue-500 text-sm mb-2">
+                                <option value="public">{{ t('server_public') }}</option>
+                                <option value="custom">{{ t('server_custom') }}</option>
+                            </select>
+                            <input v-if="serverPreset === 'custom'" type="text" v-model="customServerUrl" :placeholder="t('custom_url')" class="px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none focus:border-blue-500 font-mono text-sm">
                         </div>
                     </div>
                 
@@ -146,7 +154,7 @@
                     <div class="flex items-center gap-3 relative">
                         <h1 class="text-lg font-semibold">{{ t('title') }}</h1>
                         
-                        <!-- P2P STATUS INDICATOR & DROPDOWN -->
+                        <!-- P2P STATUS INDICATOR -->
                         <div v-if="sessionMode !== 'local'" class="relative">
                             <button @click.stop="togglePeersList" 
                                  class="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium border transition-colors cursor-pointer shadow-inner focus:outline-none"
@@ -173,7 +181,6 @@
                                  <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3 ml-1 opacity-70" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" /></svg>
                             </button>
 
-                            <!-- Всплывающая панель участников -->
                             <div v-if="showPeersList" @click.stop class="absolute top-full left-0 mt-2 w-64 bg-white border border-gray-200 shadow-xl rounded-lg overflow-hidden z-50">
                                 <div class="px-4 py-2 bg-gray-50 border-b border-gray-100 text-xs font-bold text-gray-500">
                                     {{ t('peers_list') }} ({{ peersList.length }})
@@ -240,7 +247,6 @@
                     </div>
                 </div>
 
-                <!-- БАННЕР ОШИБКИ СИНХРОНИЗАЦИИ -->
                 <div v-if="syncError" class="mx-0 mt-0 bg-red-50 border border-red-200 p-3 rounded-lg flex justify-between items-center shrink-0 shadow-sm animate-pulse">
                     <div class="flex items-center gap-3">
                         <div class="p-2 bg-red-100 text-red-600 rounded-full">
@@ -283,9 +289,7 @@
                 </div>
             </div>
 
-            <!-- Основная рабочая область -->
             <div class="flex flex-row gap-4 flex-1 min-h-0 overflow-hidden">
-                
                 <div class="w-2/3 bg-white p-4 rounded-xl shadow-sm border border-gray-200 flex flex-col gap-3 h-full">
                     <div class="flex justify-between items-center">
                         <h2 class="font-semibold text-lg">{{ t('transcript') }}</h2>
@@ -396,7 +400,6 @@
                         {{ t('no_bookmarks') }}
                     </div>
                 </div>
-
             </div>
         </template>
     </div>
@@ -433,6 +436,10 @@
                 room_placeholder: 'Например: emca-session-123',
                 room_password: 'Пароль шифрования (Опционально)',
                 encryption_hint: 'Включит AES-GCM шифрование для защиты от посторонних',
+                signaling_server: 'Сигнальный сервер',
+                server_public: 'Публичный (yjs.dev)',
+                server_custom: 'Свой сервер (Custom)',
+                custom_url: 'URL сервера (wss://...)',
                 drag_here: 'Перетащите файл сюда',
                 start_player: 'Запустить плеер',
                 connecting: 'Подключение...',
@@ -486,6 +493,10 @@
                 room_placeholder: 'e.g., emca-session-123',
                 room_password: 'Encryption Password (Optional)',
                 encryption_hint: 'Enables AES-GCM encryption to block uninvited guests',
+                signaling_server: 'Signaling Server',
+                server_public: 'Public (yjs.dev)',
+                server_custom: 'Custom Server',
+                custom_url: 'Server URL (wss://...)',
                 drag_here: 'Drag file here',
                 start_player: 'Start Player',
                 connecting: 'Connecting...',
@@ -554,6 +565,9 @@
                 const roomName = ref('');
                 const roomPassword = ref('');
                 
+                const serverPreset = ref('public');
+                const customServerUrl = ref('wss://');
+                
                 const isDraggingAudio = ref(false);
                 const isDraggingJson = ref(false);
 
@@ -605,6 +619,10 @@
                 let loopTimeout = null;
 
                 const openPickerId = ref(null);
+
+                const activeSignalingServer = computed(() => {
+                    return serverPreset.value === 'public' ? 'wss://signaling.yjs.dev' : customServerUrl.value;
+                });
 
                 onMounted(() => {
                     const savedName = localStorage.getItem('emca_username');
@@ -694,7 +712,6 @@
                         });
                     });
                     
-                    // Сортируем: Я всегда первый, остальные по алфавиту
                     arr.sort((a, b) => {
                         if (a.isMe) return -1;
                         if (b.isMe) return 1;
@@ -721,8 +738,7 @@
                         connectionState.value = 'waiting';
                         ydoc = new Y.Doc();
                         
-                        // Включаем E2E Шифрование, если задан пароль
-                        const providerOpts = { signaling: ['wss://signaling.yjs.dev'] };
+                        const providerOpts = { signaling: [activeSignalingServer.value] };
                         if (roomPassword.value.trim() !== '') {
                             providerOpts.password = roomPassword.value.trim();
                         }
@@ -1149,6 +1165,31 @@
                     URL.revokeObjectURL(url);
                 };
 
+                const importBookmarks = (event) => {
+                    const file = event.target.files[0];
+                    if (!file) return;
+                    const reader = new FileReader();
+                    reader.onload = (e) => {
+                        try {
+                            const importedData = JSON.parse(e.target.result);
+                            importedData.forEach(importedLine => {
+                                const line = transcript.value.find(l => l.id === importedLine.id);
+                                if (line) {
+                                    applyLineUpdate(line, {
+                                        is_bookmarked: importedLine.is_bookmarked ?? true,
+                                        note: importedLine.note || '',
+                                        color: importedLine.color || ''
+                                    });
+                                }
+                            });
+                        } catch (err) {
+                            alert("Error reading JSON file. Check format.");
+                        }
+                    };
+                    reader.readAsText(file);
+                    event.target.value = '';
+                };
+
                 const activeLineId = computed(() => {
                     const line = transcript.value.find(l => currentTime.value >= l.start && currentTime.value <= l.end);
                     return line ? line.id : null;
@@ -1196,6 +1237,8 @@
                     userName,
                     roomName,
                     roomPassword,
+                    serverPreset,
+                    customServerUrl,
                     isReadyToStart,
                     isDraggingAudio,
                     isDraggingJson,
@@ -1253,7 +1296,8 @@
                     nextSearch,
                     prevSearch,
                     isSearchMatch,
-                    exportBookmarks
+                    exportBookmarks,
+                    importBookmarks
                 };
             }
         }).mount('#app');
