@@ -3,7 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="referrer" content="no-referrer">
     <title>EMCA Data Session</title>
+    <!-- Предупреждение от Tailwind в консоли - это нормально для режима без сборки -->
     <script src="https://cdn.tailwindcss.com"></script>
 </head>
 <body class="bg-gray-50 text-gray-800 font-sans h-[100dvh] flex flex-col overflow-hidden select-none">
@@ -68,13 +70,11 @@
                         {{ t('back') }}
                     </button>
 
-                    <!-- Имя пользователя -->
                     <div class="flex flex-col mb-1">
                         <label class="text-sm font-medium text-gray-700 mb-1">{{ t('user_name') }} <span class="text-red-500">*</span></label>
                         <input type="text" v-model="userName" :placeholder="t('name_placeholder')" class="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-blue-500 text-sm transition-colors" :class="{'border-red-300 bg-red-50': !userName.trim() && highlightErrors}">
                     </div>
 
-                    <!-- Медиафайл -->
                     <div 
                         class="border-2 border-dashed rounded-xl p-4 text-center transition-colors relative cursor-pointer"
                         :class="[
@@ -94,7 +94,6 @@
                         </span>
                     </div>
 
-                    <!-- JSON Транскрипт -->
                     <div 
                         v-if="sessionMode === 'local' || sessionMode === 'host'"
                         class="border-2 border-dashed rounded-xl p-4 text-center transition-colors relative cursor-pointer"
@@ -115,7 +114,6 @@
                         </span>
                     </div>
 
-                    <!-- Настройки комнаты P2P -->
                     <div v-if="sessionMode === 'host' || sessionMode === 'join'" class="flex flex-col gap-3 mt-1 bg-gray-50 p-4 rounded-xl border border-gray-200">
                         <div class="flex flex-col">
                             <label class="text-sm font-medium text-gray-700 mb-1">{{ t('room_name') }} <span class="text-red-500">*</span></label>
@@ -127,19 +125,18 @@
                             <p class="text-[10px] text-gray-500 mt-1 leading-tight">{{ t('encryption_hint') }}</p>
                         </div>
                         
-                        <!-- Выбор сигнального сервера -->
                         <div class="flex flex-col pt-2 border-t border-gray-200 mt-1">
                             <label class="text-sm font-medium text-gray-700 mb-1">{{ t('signaling_server') }}</label>
                             <select v-model="serverPreset" class="px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none focus:border-blue-500 text-sm mb-2">
                                 <option value="public">{{ t('server_public') }}</option>
                                 <option value="custom">{{ t('server_custom') }}</option>
                             </select>
-                            <input v-if="serverPreset === 'custom'" type="text" v-model="customServerUrl" :placeholder="t('custom_url')" class="px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none focus:border-blue-500 font-mono text-sm">
+                            <input v-if="serverPreset === 'custom'" type="text" v-model="customServerUrl" :placeholder="t('custom_url')" class="px-3 py-1.5 border rounded-md focus:outline-none focus:border-blue-500 font-mono text-sm transition-colors" :class="{'border-red-300 bg-red-50': (!customServerUrl || customServerUrl.length <= 6) && highlightErrors, 'border-gray-300': customServerUrl.length > 6 || !highlightErrors}">
                         </div>
                     </div>
                 
-                    <!-- ОШИБКА ПОДКЛЮЧЕНИЯ (Отображается до старта плеера) -->
-                    <div v-if="connectionErrorMsg" class="p-3 bg-red-50 border border-red-200 text-red-600 rounded-lg text-sm flex items-start gap-2 shadow-sm animate-pulse">
+                    <!-- ОШИБКА ПОДКЛЮЧЕНИЯ -->
+                    <div v-if="connectionErrorMsg" class="p-3 bg-red-50 border border-red-200 text-red-600 rounded-lg text-sm flex items-start gap-2 shadow-sm">
                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-5 h-5 shrink-0 mt-0.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
                         <span>{{ connectionErrorMsg }}</span>
                     </div>
@@ -436,7 +433,7 @@
     </style>
 
     <script type="module">
-        import { createApp, ref, computed, watch, nextTick, onUnmounted } from 'https://unpkg.com/vue@3/dist/vue.esm-browser.js';
+        import { createApp, ref, computed, watch, nextTick, onUnmounted } from 'https://unpkg.com/vue@3/dist/vue.esm-browser.prod.js';
         import WaveSurfer from 'https://unpkg.com/wavesurfer.js@7/dist/wavesurfer.esm.js';
         import Spectrogram from 'https://unpkg.com/wavesurfer.js@7/dist/plugins/spectrogram.esm.js';
         import RegionsPlugin from 'https://unpkg.com/wavesurfer.js@7/dist/plugins/regions.esm.js';
@@ -470,7 +467,7 @@
                 status_waiting: 'Ожидание сети',
                 status_connected: 'В сети',
                 status_error: 'Ошибка синхронизации',
-                error_connection: 'Ошибка соединения: Сервер недоступен или отклонил запрос. Проверьте адрес и секретный путь.',
+                error_connection: 'Ошибка соединения: Сервер отклонил запрос. Убедитесь, что Caddy работает корректно.',
                 error_advice: 'Синхронизация прервана. Чтобы не потерять данные, скачайте JSON сейчас, затем обновите страницу и переподключитесь.',
                 peers_list: 'В комнате:',
                 you: 'Вы',
@@ -529,7 +526,7 @@
                 status_waiting: 'Waiting for peers',
                 status_connected: 'Connected',
                 status_error: 'Sync Error',
-                error_connection: 'Connection error: Server is unreachable or denied access. Check the URL and secret path.',
+                error_connection: 'Connection error: Server rejected the request. Ensure Caddy is proxying correctly.',
                 error_advice: 'Sync lost. To prevent data loss, download your JSON now, then refresh the page and reconnect.',
                 peers_list: 'In Room:',
                 you: 'You',
@@ -590,7 +587,6 @@
                 const audioFileName = ref('');
                 const jsonFileName = ref('');
                 
-                // Инициализация имени пользователя и очистка localStorage от возможного мусора
                 const defaultName = 'User ' + Math.floor(Math.random() * 1000);
                 const userName = ref(localStorage.getItem('emca_username') || defaultName);
                 
@@ -611,8 +607,6 @@
                 const showPeersList = ref(false);
 
                 const transcript = ref([]);
-                
-                // КЛЮЧЕВОЙ ФИКС: Делаем буфер JSON реактивным
                 const localJsonBuffer = ref(null); 
 
                 const currentTime = ref(0);
@@ -654,7 +648,7 @@
                 const openPickerId = ref(null);
 
                 const activeSignalingServer = computed(() => {
-                    return serverPreset.value === 'public' ? 'wss://signaling.yjs.dev' : customServerUrl.value;
+                    return serverPreset.value === 'public' ? 'wss://signaling.yjs.dev' : customServerUrl.value.trim();
                 });
 
                 watch(userName, (newVal) => {
@@ -665,6 +659,15 @@
 
                 const isReadyToStart = computed(() => {
                     if (!userName.value.trim()) return false;
+                    
+                    if (sessionMode.value !== 'local') {
+                        if (serverPreset.value === 'custom') {
+                            const url = customServerUrl.value.trim();
+                            if (!url.startsWith('ws://') && !url.startsWith('wss://')) return false;
+                            if (url.length <= 6) return false;
+                        }
+                    }
+
                     if (sessionMode.value === 'local') return audioUrl.value !== '' && localJsonBuffer.value !== null;
                     if (sessionMode.value === 'host') return audioUrl.value !== '' && localJsonBuffer.value !== null && roomName.value.trim() !== '';
                     if (sessionMode.value === 'join') return audioUrl.value !== '' && roomName.value.trim() !== '';
@@ -755,31 +758,52 @@
                     }
                 };
                 
+                // Исправленная и изолированная функция проверки WebSocket
                 const checkServerConnection = (url) => {
                     return new Promise((resolve, reject) => {
-                        const ws = new WebSocket(url);
-                        const timeout = setTimeout(() => {
-                            ws.close();
-                            reject(new Error(t('error_connection')));
-                        }, 5000);
-
-                        ws.onopen = () => {
-                            clearTimeout(timeout);
-                            ws.close();
-                            resolve();
+                        let settled = false;
+                        const fail = (reason) => {
+                            if (!settled) {
+                                settled = true;
+                                reject(new Error(reason));
+                            }
                         };
 
-                        ws.onerror = (e) => {
-                            clearTimeout(timeout);
-                            reject(new Error(t('error_connection')));
-                        };
+                        try {
+                            const testWs = new WebSocket(url);
+                            const timeout = setTimeout(() => {
+                                try { testWs.close(); } catch (e) {}
+                                fail("Таймаут соединения. Сервер не ответил за 5 секунд.");
+                            }, 5000);
+
+                            testWs.onopen = () => {
+                                if (!settled) {
+                                    settled = true;
+                                    clearTimeout(timeout);
+                                    testWs.close();
+                                    resolve();
+                                }
+                            };
+
+                            testWs.onerror = () => {
+                                clearTimeout(timeout);
+                                fail("Сервер отклонил соединение. Проверьте правильность адреса.");
+                            };
+
+                            testWs.onclose = () => {
+                                clearTimeout(timeout);
+                                fail("Соединение разорвано на этапе рукопожатия.");
+                            };
+                        } catch (err) {
+                            fail("Не удалось создать WebSocket (ошибка синтаксиса URL).");
+                        }
                     });
                 };
 
                 const initP2P = async () => {
                     try {
-                        const yjsModule = await import('https://esm.sh/yjs@13.6.14?bundle');
-                        const webrtcModule = await import('https://esm.sh/y-webrtc@13.0.2?bundle');
+                        const yjsModule = await import('https://cdn.jsdelivr.net/npm/yjs@13.6.14/+esm');
+                        const webrtcModule = await import('https://cdn.jsdelivr.net/npm/y-webrtc@10.3.0/+esm');
                         
                         const Y = yjsModule.default || yjsModule;
                         const WebrtcProvider = webrtcModule.WebrtcProvider;
@@ -820,7 +844,7 @@
                     } catch (err) {
                         console.error("Failed to load P2P modules:", err);
                         syncError.value = true;
-                        throw new Error(t('error_connection'));
+                        throw new Error("Не удалось загрузить P2P библиотеки. Проверьте подключение к интернету.");
                     }
                 };
 
@@ -869,6 +893,7 @@
                             nextTick(() => { initPlayer(); });
                         } catch (e) {
                             isConnectingP2P.value = false;
+                            // Спиннер 100% остановится, а текст ошибки появится на экране
                             connectionErrorMsg.value = e.message;
                         }
                     }
@@ -1352,7 +1377,8 @@
                     prevSearch,
                     isSearchMatch,
                     exportBookmarks,
-                    importBookmarks
+                    importBookmarks,
+                    localJsonBuffer
                 };
             }
         }).mount('#app');
