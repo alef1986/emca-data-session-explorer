@@ -71,6 +71,7 @@ createApp({
         const editorRef = ref(null);
         const autoScroll = ref(true);
         const currentAlignment = ref('left');
+        const highlightActiveSegment = ref(localStorage.getItem('emca_highlight_segment') === 'true');
         
         let ws = null;
         let activeSpectrogramPlugin = null;
@@ -80,6 +81,104 @@ createApp({
         let zoomRedrawTimer = null;
         let editor = null;
         let yText = null;
+        let currentActiveSegmentRange = null;
+
+        const clearSegmentHighlight = () => {
+            if (editorRef.value) {
+                const highlighted = editorRef.value.querySelectorAll('.active-segment-highlight');
+                highlighted.forEach(el => el.classList.remove('active-segment-highlight'));
+            }
+            currentActiveSegmentRange = null;
+        };
+
+        const updateActiveSegmentHighlight = (time) => {
+            if (!highlightActiveSegment.value) {
+                if (currentActiveSegmentRange !== null) {
+                    clearSegmentHighlight();
+                }
+                return;
+            }
+
+            if (!editorRef.value) return;
+
+            // Быстрая проверка: если время внутри текущего диапазона и класс на месте
+            if (currentActiveSegmentRange) {
+                if (time >= currentActiveSegmentRange.start && time <= currentActiveSegmentRange.end) {
+                    const activeElements = editorRef.value.querySelectorAll('.active-segment-highlight');
+                    if (activeElements.length > 0) {
+                        return;
+                    }
+                }
+            }
+
+            const allSpans = editorRef.value.querySelectorAll('[data-start]');
+            if (!allSpans || allSpans.length === 0) {
+                clearSegmentHighlight();
+                return;
+            }
+
+            let targetStart = null;
+            let targetEnd = null;
+            let firstMatchingEl = null;
+
+            for (let i = 0; i < allSpans.length; i++) {
+                const el = allSpans[i];
+                const s = parseFloat(el.getAttribute('data-start'));
+                const e = parseFloat(el.getAttribute('data-end'));
+                if (isNaN(s)) continue;
+                const safeEnd = !isNaN(e) ? e : s;
+
+                if (time >= s && time <= safeEnd) {
+                    targetStart = s;
+                    targetEnd = safeEnd;
+                    firstMatchingEl = el;
+                    break;
+                }
+            }
+
+            if (firstMatchingEl === null) {
+                clearSegmentHighlight();
+                return;
+            }
+
+            // Снимаем подсветку со старых элементов
+            const oldHighlighted = editorRef.value.querySelectorAll('.active-segment-highlight');
+            oldHighlighted.forEach(el => el.classList.remove('active-segment-highlight'));
+
+            // Добавляем подсветку всем элементам данного интервала
+            for (let i = 0; i < allSpans.length; i++) {
+                const el = allSpans[i];
+                const s = parseFloat(el.getAttribute('data-start'));
+                const e = parseFloat(el.getAttribute('data-end'));
+                const safeEnd = !isNaN(e) ? e : s;
+                if (s === targetStart && safeEnd === targetEnd) {
+                    el.classList.add('active-segment-highlight');
+                }
+            }
+
+            currentActiveSegmentRange = { start: targetStart, end: targetEnd };
+
+            // Плавный скролл к элементу при необходимости
+            if (firstMatchingEl) {
+                const container = editorRef.value.closest('.overflow-y-auto');
+                if (container) {
+                    const elRect = firstMatchingEl.getBoundingClientRect();
+                    const cRect = container.getBoundingClientRect();
+                    if (elRect.top < cRect.top || elRect.bottom > cRect.bottom) {
+                        firstMatchingEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                    }
+                }
+            }
+        };
+
+        watch(highlightActiveSegment, (newVal) => {
+            localStorage.setItem('emca_highlight_segment', newVal);
+            if (newVal) {
+                updateActiveSegmentHighlight(currentTime.value);
+            } else {
+                clearSegmentHighlight();
+            }
+        });
 
         const isDraggingWave = ref(false);
         let pointerStartX = 0;
@@ -294,6 +393,9 @@ createApp({
             });
             editor.on('transaction', () => {
                 currentAlignment.value = editor.isActive({ textAlign: 'justify' }) ? 'justify' : 'left';
+                if (highlightActiveSegment.value) {
+                    updateActiveSegmentHighlight(currentTime.value);
+                }
             });
 
             editor.view.dom.addEventListener('click', (e) => {
@@ -354,6 +456,11 @@ createApp({
             if (!editor) return;
             const htmlContent = formatTranscriptToHtml(jsonBuffer, 1.0);
             editor.commands.setContent(htmlContent);
+            nextTick(() => {
+                if (highlightActiveSegment.value) {
+                    updateActiveSegmentHighlight(currentTime.value);
+                }
+            });
         };
 
         const startSession = async () => {
@@ -469,6 +576,12 @@ createApp({
             ws.on('play', () => { isPlaying.value = true; });
             ws.on('pause', () => { isPlaying.value = false; });
             ws.on('timeupdate', (time) => { currentTime.value = time; });
+            ws.on('seeking', (time) => {
+                currentTime.value = time;
+                if (highlightActiveSegment.value) {
+                    updateActiveSegmentHighlight(time);
+                }
+            });
 
             regionsPlugin.on('region-created', (region) => {
                 if (activeLoopRegion && activeLoopRegion !== region) activeLoopRegion.remove();
@@ -527,7 +640,12 @@ createApp({
                     const totalWidth = wrapper.offsetWidth;
                     if (totalWidth > 0) {
                         const targetRatio = Math.max(0, Math.min(1, trueX / totalWidth));
-                        ws.setTime(targetRatio * ws.getDuration());
+                        const newTime = targetRatio * ws.getDuration();
+                        ws.setTime(newTime);
+                        currentTime.value = newTime;
+                        if (highlightActiveSegment.value) {
+                            updateActiveSegmentHighlight(newTime);
+                        }
                     }
                 }
             }
@@ -572,6 +690,10 @@ createApp({
         const jumpTo = (time) => {
             if (ws) {
                 ws.setTime(time);
+                currentTime.value = time;
+                if (highlightActiveSegment.value) {
+                    updateActiveSegmentHighlight(time);
+                }
                 if (!isPlaying.value) ws.play();
             }
         };
@@ -608,6 +730,9 @@ createApp({
         watch(autoScroll, (newVal) => { if (ws) ws.setOptions({ autoCenter: newVal }); });
 
         watch(currentTime, async (newTime) => {
+            if (highlightActiveSegment.value) {
+                updateActiveSegmentHighlight(newTime);
+            }
             if (isLoopMode.value && isPlaying.value && activeLoopRegion) {
                 if (newTime >= activeLoopRegion.end) {
                     ws.pause();
@@ -631,7 +756,7 @@ createApp({
             currentSearchIndex, hasSearched, isLoopMode, hasActiveLoop, isDraggingWave, onWaveWheel, onWavePointerDown,
             onWavePointerMove, onWavePointerUp, togglePlay, onZoom, jumpTo, toggleLoopMode, colorSwatches, closePopups,
             formatTime, executeSearch, nextSearch, prevSearch, exportBookmarks, localJsonBuffer, editorRef, applyHighlight,
-            setAlignment, currentAlignment
+            setAlignment, currentAlignment, highlightActiveSegment
         };
     }
 }).mount('#app');

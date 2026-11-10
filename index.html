@@ -15,6 +15,14 @@
         /* Cursors */
         .collaboration-cursor__caret { border-left: 2px solid #0d0d0d; margin-left: -1px; margin-right: -1px; pointer-events: none; position: relative; word-break: normal; }
         .collaboration-cursor__label { border-radius: 3px 3px 3px 0; color: #0d0d0d; font-size: 12px; font-style: normal; font-weight: 600; left: -1px; line-height: normal; padding: 0.1rem 0.3rem; position: absolute; top: -1.4em; user-select: none; white-space: nowrap; }
+        /* Active playing segment highlight */
+        .timecode-segment.active-segment-highlight,
+        [data-start].active-segment-highlight {
+            background-color: #bfdbfe !important;
+            color: #1e3a8a !important;
+            box-shadow: 0 0 0 2px #3b82f6;
+            border-radius: 3px;
+        }
     </style>
 </head>
 <body class="bg-gray-50 text-gray-800 font-sans h-[100dvh] flex flex-col overflow-hidden select-none">
@@ -332,6 +340,16 @@
                                     </svg>
                                 </button>
                             </div>
+
+                            <!-- Галочка подсветки текущего сегмента -->
+                            <label class="flex items-center gap-1.5 text-xs text-gray-600 hover:text-gray-900 cursor-pointer select-none px-2 py-1 rounded-lg bg-gray-50 hover:bg-gray-100 border border-gray-200 transition-colors" :title="t('highlight_current_segment')">
+                                <input 
+                                    type="checkbox" 
+                                    v-model="highlightActiveSegment" 
+                                    class="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                                >
+                                <span class="font-medium text-xs">{{ t('highlight_current_segment') }}</span>
+                            </label>
 
                             <div class="h-4 w-px bg-gray-300 mx-1"></div>
 
