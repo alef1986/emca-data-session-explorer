@@ -308,9 +308,36 @@
                     <div class="flex justify-between items-center mb-4 shrink-0">
                         <h2 class="font-semibold text-lg">{{ t('transcript') }}</h2>
                         <!-- Меню форматирования для Tiptap -->
-                        <div class="flex gap-2">
-                            <button @click="applyHighlight('#fde047')" class="w-6 h-6 rounded-full bg-yellow-300 hover:ring-2 ring-offset-1"></button>
-                            <button @click="applyHighlight('#86efac')" class="w-6 h-6 rounded-full bg-green-300 hover:ring-2 ring-offset-1"></button>
+                        <div class="flex items-center gap-2">
+                            <!-- Выключка текста -->
+                            <div class="flex items-center bg-gray-100 p-0.5 rounded-lg border border-gray-200">
+                                <button 
+                                    @click="setAlignment('left')" 
+                                    :class="currentAlignment === 'left' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'"
+                                    class="p-1.5 rounded-md transition-colors"
+                                    :title="t('align_left')"
+                                >
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h10.5m-10.5 5.25h16.5" />
+                                    </svg>
+                                </button>
+                                <button 
+                                    @click="setAlignment('justify')" 
+                                    :class="currentAlignment === 'justify' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'"
+                                    class="p-1.5 rounded-md transition-colors"
+                                    :title="t('align_justify')"
+                                >
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
+                                    </svg>
+                                </button>
+                            </div>
+
+                            <div class="h-4 w-px bg-gray-300 mx-1"></div>
+
+                            <!-- Маркеры подсветки -->
+                            <button @click="applyHighlight('#fde047')" class="w-6 h-6 rounded-full bg-yellow-300 hover:ring-2 ring-offset-1" :title="t('color_tag')"></button>
+                            <button @click="applyHighlight('#86efac')" class="w-6 h-6 rounded-full bg-green-300 hover:ring-2 ring-offset-1" :title="t('color_tag')"></button>
                         </div>
                     </div>
                     

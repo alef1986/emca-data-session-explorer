@@ -9,6 +9,7 @@ import StarterKit from 'https://esm.sh/@tiptap/starter-kit@2.2.4';
 import Collaboration from 'https://esm.sh/@tiptap/extension-collaboration@2.2.4?deps=yjs@13.6.18';
 import CollaborationCursor from 'https://esm.sh/@tiptap/extension-collaboration-cursor@2.2.4?deps=yjs@13.6.18';
 import Highlight from 'https://esm.sh/@tiptap/extension-highlight@2.2.4';
+import TextAlign from 'https://esm.sh/@tiptap/extension-text-align@2.2.4';
 
 createApp({
     setup() {
@@ -69,6 +70,7 @@ createApp({
         const waveformRef = ref(null);
         const editorRef = ref(null);
         const autoScroll = ref(true);
+        const currentAlignment = ref('left');
         
         let ws = null;
         let activeSpectrogramPlugin = null;
@@ -249,7 +251,7 @@ createApp({
             parseHTML() { return [{ tag: 'span[data-start]' }] },
             renderHTML({ HTMLAttributes }) {
                 return ['span', mergeAttributes(HTMLAttributes, { 
-                    class: 'timecode-segment hover:bg-gray-100 cursor-pointer transition-colors duration-150 rounded px-1' 
+                    class: 'timecode-segment hover:bg-gray-100 cursor-pointer transition-colors duration-150 rounded px-0.5' 
                 }), 0]
             },
         });
@@ -260,7 +262,12 @@ createApp({
             const extensions = [
                 StarterKit,
                 TimecodeMark,
-                Highlight.configure({ multicolor: true })
+                Highlight.configure({ multicolor: true }),
+                TextAlign.configure({
+                    types: ['heading', 'paragraph'],
+                    alignments: ['left', 'justify'],
+                    defaultAlignment: 'left',
+                }),
             ];
 
             if (sessionMode.value !== 'local') {
@@ -282,6 +289,13 @@ createApp({
                 },
             });
 
+            editor.on('selectionUpdate', () => {
+                currentAlignment.value = editor.isActive({ textAlign: 'justify' }) ? 'justify' : 'left';
+            });
+            editor.on('transaction', () => {
+                currentAlignment.value = editor.isActive({ textAlign: 'justify' }) ? 'justify' : 'left';
+            });
+
             editor.view.dom.addEventListener('click', (e) => {
                 const timecodeSpan = e.target.closest('[data-start]');
                 if (timecodeSpan) {
@@ -291,11 +305,54 @@ createApp({
             });
         };
 
+        const escapeHtml = (str) => {
+            return str
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#039;');
+        };
+
+        const formatTranscriptToHtml = (jsonBuffer, pauseThreshold = 1.0) => {
+            if (!Array.isArray(jsonBuffer)) return '';
+            const validLines = jsonBuffer.filter(line => line && typeof line.text === 'string' && line.text.trim().length > 0);
+            if (validLines.length === 0) return '';
+
+            const paragraphs = [];
+            let currentParagraphSpans = [];
+            let prevEnd = null;
+
+            for (const line of validLines) {
+                const start = parseFloat(line.start);
+                const end = parseFloat(line.end);
+                const safeStart = !isNaN(start) ? start : 0;
+                const safeEnd = !isNaN(end) ? end : safeStart;
+                const cleanText = escapeHtml(line.text.replace(/[\r\n]+/g, ' ').replace(/\s+/g, ' ').trim());
+                if (!cleanText) continue;
+
+                // Если пауза между концом предыдущего сегмента и началом текущего больше 1 секунды - создаем новый абзац
+                if (prevEnd !== null && (safeStart - prevEnd) > pauseThreshold) {
+                    if (currentParagraphSpans.length > 0) {
+                        paragraphs.push(currentParagraphSpans.join(' '));
+                        currentParagraphSpans = [];
+                    }
+                }
+
+                currentParagraphSpans.push(`<span data-start="${safeStart}" data-end="${safeEnd}">${cleanText}</span>`);
+                prevEnd = safeEnd;
+            }
+
+            if (currentParagraphSpans.length > 0) {
+                paragraphs.push(currentParagraphSpans.join(' '));
+            }
+
+            return paragraphs.map(p => `<p>${p}</p>`).join('');
+        };
+
         const loadInitialTranscript = (jsonBuffer) => {
             if (!editor) return;
-            const htmlContent = jsonBuffer.map(line => {
-                return `<p><span data-start="${line.start}" data-end="${line.end}">${line.text}</span></p>`;
-            }).join('');
+            const htmlContent = formatTranscriptToHtml(jsonBuffer, 1.0);
             editor.commands.setContent(htmlContent);
         };
 
@@ -357,6 +414,17 @@ createApp({
 
         const applyHighlight = (colorHex) => {
             if (editor) editor.chain().focus().toggleHighlight({ color: colorHex }).run();
+        };
+
+        const setAlignment = (align) => {
+            if (!editor) return;
+            const { from, to } = editor.state.selection;
+            if (from === to) {
+                editor.chain().focus().selectAll().setTextAlign(align).setTextSelection(from).run();
+            } else {
+                editor.chain().focus().setTextAlign(align).run();
+            }
+            currentAlignment.value = align;
         };
 
         const initSpectrogram = () => {
@@ -562,7 +630,8 @@ createApp({
             applyFrequencyRange, waveformRef, autoScroll, activeLineId, bookmarkedLines, searchQuery, searchResults,
             currentSearchIndex, hasSearched, isLoopMode, hasActiveLoop, isDraggingWave, onWaveWheel, onWavePointerDown,
             onWavePointerMove, onWavePointerUp, togglePlay, onZoom, jumpTo, toggleLoopMode, colorSwatches, closePopups,
-            formatTime, executeSearch, nextSearch, prevSearch, exportBookmarks, localJsonBuffer, editorRef, applyHighlight
+            formatTime, executeSearch, nextSearch, prevSearch, exportBookmarks, localJsonBuffer, editorRef, applyHighlight,
+            setAlignment, currentAlignment
         };
     }
 }).mount('#app');
