@@ -440,7 +440,9 @@ createApp({
 
         const initRichTextEditor = () => {
             const extensions = [
-                StarterKit,
+                StarterKit.configure({
+                    history: false,
+                }),
                 TimecodeMark,
                 CommentMark,
                 Highlight.configure({ multicolor: true }),
