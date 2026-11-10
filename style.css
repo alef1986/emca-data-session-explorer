@@ -3,3 +3,36 @@
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
 ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+
+/* Comment Marks in Rich Text */
+.emca-comment-mark {
+    background-color: rgba(254, 240, 138, 0.45);
+    border-bottom: 2px solid #eab308;
+    cursor: pointer;
+    border-radius: 2px;
+    transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.emca-comment-mark:hover {
+    background-color: rgba(254, 240, 138, 0.85);
+    border-bottom-color: #ca8a04;
+}
+
+.emca-comment-pulse {
+    animation: emca-pulse 1.8s ease-in-out;
+}
+
+@keyframes emca-pulse {
+    0% {
+        background-color: rgba(251, 191, 36, 0.9);
+        box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.5);
+    }
+    50% {
+        background-color: rgba(251, 191, 36, 0.7);
+        box-shadow: 0 0 0 5px rgba(245, 158, 11, 0.3);
+    }
+    100% {
+        background-color: rgba(254, 240, 138, 0.45);
+        box-shadow: none;
+    }
+}

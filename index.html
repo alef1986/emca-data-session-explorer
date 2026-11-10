@@ -353,9 +353,64 @@
 
                             <div class="h-4 w-px bg-gray-300 mx-1"></div>
 
-                            <!-- Маркеры подсветки -->
-                            <button @click="applyHighlight('#fde047')" class="w-6 h-6 rounded-full bg-yellow-300 hover:ring-2 ring-offset-1" :title="t('color_tag')"></button>
-                            <button @click="applyHighlight('#86efac')" class="w-6 h-6 rounded-full bg-green-300 hover:ring-2 ring-offset-1" :title="t('color_tag')"></button>
+                            <!-- Кружок выбора цвета подсветки (7 цветов) -->
+                            <div class="relative flex items-center">
+                                <button 
+                                    @mousedown.prevent 
+                                    @click.stop="toggleHighlightPicker" 
+                                    :disabled="!isTextSelected"
+                                    class="w-6 h-6 rounded-full border border-gray-300 transition-all flex items-center justify-center shadow-xs"
+                                    :class="isTextSelected ? 'cursor-pointer hover:ring-2 hover:ring-blue-400 ring-offset-1 bg-gradient-to-tr from-yellow-300 via-pink-300 to-blue-300' : 'opacity-35 cursor-not-allowed bg-gray-200'"
+                                    :title="isTextSelected ? t('select_color') : t('select_text_to_highlight')"
+                                >
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5 text-gray-700 pointer-events-none drop-shadow-xs" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01" />
+                                    </svg>
+                                </button>
+
+                                <!-- Выпадающая палитра из 7 цветов + кнопка сброса -->
+                                <div 
+                                    v-if="showHighlightPicker" 
+                                    @click.stop 
+                                    class="absolute top-full left-0 mt-2 p-2 bg-white rounded-xl shadow-xl border border-gray-200 flex items-center gap-1.5 z-50 animate-in fade-in zoom-in-95 duration-100"
+                                >
+                                    <button 
+                                        v-for="color in highlightColors" 
+                                        :key="color.hex" 
+                                        @mousedown.prevent 
+                                        @click="applyHighlight(color.hex)" 
+                                        class="w-6 h-6 rounded-full border border-black/10 hover:scale-115 transition-transform shadow-xs focus:outline-none"
+                                        :style="{ backgroundColor: color.hex }"
+                                        :title="t('color_' + color.name)"
+                                    ></button>
+                                    <div class="w-px h-4 bg-gray-200 mx-0.5"></div>
+                                    <button 
+                                        @mousedown.prevent 
+                                        @click="clearHighlight" 
+                                        class="w-6 h-6 rounded-full border border-gray-300 hover:border-red-400 bg-white hover:bg-red-50 text-gray-400 hover:text-red-500 flex items-center justify-center transition-colors focus:outline-none"
+                                        :title="t('clear_highlight')"
+                                    >
+                                        <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                            <path stroke-linecap="round" stroke-linejoin="round" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
+                                        </svg>
+                                    </button>
+                                </div>
+                            </div>
+
+                            <!-- Кнопка добавления комментария -->
+                            <button 
+                                @mousedown.prevent 
+                                @click="addCommentAtSelection" 
+                                :disabled="!isTextSelected"
+                                class="px-2.5 py-1 rounded-lg border text-xs font-medium flex items-center gap-1.5 transition-all shadow-xs"
+                                :class="isTextSelected ? 'border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100 hover:border-amber-400 cursor-pointer' : 'border-gray-200 bg-gray-50 text-gray-300 opacity-40 cursor-not-allowed'"
+                                :title="isTextSelected ? t('add_comment') : t('select_text_to_comment')"
+                            >
+                                <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z" />
+                                </svg>
+                                <span>{{ t('comment') }}</span>
+                            </button>
                         </div>
                     </div>
                     
@@ -365,16 +420,180 @@
                     </div>
                 </div>
 
-                <div class="w-1/3 bg-white p-4 rounded-xl shadow-sm border border-gray-200 flex flex-col h-full">
-                    <div class="flex items-center justify-between mb-4 shrink-0">
-                        <h2 class="font-semibold text-lg flex items-center gap-2">
-                            <span>{{ t('bookmarks') }}</span>
-                            <span class="text-sm bg-blue-100 text-blue-800 py-0.5 px-2.5 rounded-full">{{ bookmarkedLines.length }}</span>
-                        </h2>
+                <!-- ПРАВАЯ ПАНЕЛЬ: КОММЕНТАРИИ И ЗАМЕТКИ -->
+                <div class="w-1/3 bg-white p-4 rounded-xl shadow-sm border border-gray-200 flex flex-col h-full overflow-hidden">
+                    <!-- Заголовок панели -->
+                    <div class="flex items-center justify-between pb-3 mb-3 border-b border-gray-100 shrink-0">
+                        <div class="flex items-center gap-2">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z" />
+                            </svg>
+                            <h2 class="font-semibold text-gray-800 text-base flex items-center gap-2">
+                                <span>{{ t('comments') }}</span>
+                                <span class="text-xs bg-amber-100 text-amber-800 font-bold py-0.5 px-2 rounded-full">{{ commentsList.length }}</span>
+                            </h2>
+                        </div>
+                        <button 
+                            @click="exportJson" 
+                            class="text-xs bg-gray-50 hover:bg-gray-100 text-gray-700 font-medium px-2.5 py-1.5 rounded-lg border border-gray-200 flex items-center gap-1.5 transition-colors shadow-xs"
+                            :title="t('save_json')"
+                        >
+                            <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                            </svg>
+                            <span>{{ t('save_json') }}</span>
+                        </button>
                     </div>
                     
-                    <div class="text-gray-400 text-sm text-center mt-10">
-                        {{ t('no_bookmarks') }}
+                    <!-- Пустое состояние -->
+                    <div v-if="commentsList.length === 0" class="flex-1 flex flex-col items-center justify-center text-center p-6 text-gray-400">
+                        <div class="w-12 h-12 rounded-full bg-amber-50 text-amber-400 flex items-center justify-center mb-3">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z" />
+                            </svg>
+                        </div>
+                        <div class="font-medium text-gray-600 text-sm mb-1">{{ t('no_comments') }}</div>
+                        <div class="text-xs text-gray-400 max-w-xs leading-relaxed">{{ t('no_comments_desc') }}</div>
+                    </div>
+
+                    <!-- Список комментариев -->
+                    <div v-else class="flex-1 overflow-y-auto pr-1 space-y-3">
+                        <div 
+                            v-for="comment in commentsList" 
+                            :key="comment.id"
+                            :id="'comment-card-' + comment.id"
+                            @click="selectComment(comment.id)"
+                            class="p-3 rounded-xl border transition-all text-xs bg-white"
+                            :class="activeCommentId === comment.id ? 'border-amber-400 ring-2 ring-amber-100 shadow-sm bg-amber-50/10' : 'border-gray-200 hover:border-gray-300'"
+                        >
+                            <!-- Цитата выделенного текста -->
+                            <div 
+                                v-if="comment.quote" 
+                                @click.stop="jumpToCommentInEditor(comment.id)" 
+                                class="mb-2 p-1.5 pl-2 rounded bg-amber-50 border-l-2 border-amber-400 text-gray-700 italic flex items-center justify-between group cursor-pointer hover:bg-amber-100/60 transition-colors"
+                                :title="t('jump_to_text')"
+                            >
+                                <span class="truncate text-[11px] font-mono">“{{ comment.quote }}”</span>
+                                <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5 text-amber-500 opacity-0 group-hover:opacity-100 shrink-0 ml-1 transition-opacity" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3" />
+                                </svg>
+                            </div>
+
+                            <!-- Шапка комментария: автор, дата, действия -->
+                            <div class="flex items-center justify-between mb-2">
+                                <div class="flex items-center gap-1.5">
+                                    <div class="w-5 h-5 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center font-bold text-[10px]">
+                                        {{ (comment.author || 'U').charAt(0).toUpperCase() }}
+                                    </div>
+                                    <span class="font-semibold text-gray-800 text-xs">{{ comment.author }}</span>
+                                    <span v-if="comment.author === userName" class="text-[10px] bg-blue-50 text-blue-600 px-1 rounded">{{ t('you') }}</span>
+                                </div>
+                                <div class="flex items-center gap-2 text-gray-400">
+                                    <span class="text-[10px]">{{ formatCommentTime(comment.createdAt) }}</span>
+                                    <div class="flex items-center gap-1">
+                                        <button 
+                                            @click.stop="startEditComment(comment)" 
+                                            class="p-1 hover:text-blue-600 rounded hover:bg-gray-100 transition-colors"
+                                            :title="t('edit_comment')"
+                                        >
+                                            <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                                <path stroke-linecap="round" stroke-linejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                                            </svg>
+                                        </button>
+                                        <button 
+                                            @click.stop="deleteComment(comment.id)" 
+                                            class="p-1 hover:text-red-600 rounded hover:bg-gray-100 transition-colors"
+                                            :title="t('delete_comment')"
+                                        >
+                                            <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                                <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                            </svg>
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Тело комментария -->
+                            <div v-if="editingCommentId === comment.id" class="space-y-2 mt-1">
+                                <textarea 
+                                    v-model="editingCommentText" 
+                                    rows="2" 
+                                    class="w-full text-xs p-2 rounded-lg border border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100 resize-none font-sans"
+                                    :placeholder="t('comment_placeholder')"
+                                    @keydown.enter.ctrl.prevent="saveCommentEdit(comment.id)"
+                                    @keydown.esc="cancelCommentEdit(comment.id)"
+                                ></textarea>
+                                <div class="flex items-center justify-end gap-1.5">
+                                    <button 
+                                        @click="cancelCommentEdit(comment.id)" 
+                                        class="px-2 py-1 rounded text-gray-500 hover:bg-gray-100 text-[11px] font-medium transition-colors"
+                                    >
+                                        {{ t('cancel') }}
+                                    </button>
+                                    <button 
+                                        @click="saveCommentEdit(comment.id)" 
+                                        class="px-2.5 py-1 rounded bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-medium transition-colors shadow-xs"
+                                    >
+                                        {{ t('save') }}
+                                    </button>
+                                </div>
+                            </div>
+                            <div v-else class="text-gray-800 text-xs whitespace-pre-wrap leading-relaxed py-0.5">
+                                {{ comment.text || '—' }}
+                            </div>
+
+                            <!-- Ветка ответов (Replies) -->
+                            <div class="mt-2.5 pt-2 border-t border-gray-100 space-y-2">
+                                <div v-if="comment.replies && comment.replies.length > 0" class="space-y-1.5 pl-2 border-l border-gray-200">
+                                    <div 
+                                        v-for="reply in comment.replies" 
+                                        :key="reply.id" 
+                                        class="group/reply bg-gray-50/70 p-2 rounded-lg text-xs"
+                                    >
+                                        <div class="flex items-center justify-between text-[10px] text-gray-500 mb-0.5">
+                                            <div class="flex items-center gap-1">
+                                                <span class="font-semibold text-gray-700">{{ reply.author }}</span>
+                                                <span v-if="reply.author === userName" class="text-[9px] bg-blue-50 text-blue-600 px-1 rounded">{{ t('you') }}</span>
+                                            </div>
+                                            <div class="flex items-center gap-1.5">
+                                                <span>{{ formatCommentTime(reply.createdAt) }}</span>
+                                                <button 
+                                                    @click.stop="deleteReply(comment.id, reply.id)" 
+                                                    class="opacity-0 group-hover/reply:opacity-100 text-gray-400 hover:text-red-500 transition-opacity p-0.5"
+                                                    :title="t('delete_reply')"
+                                                >
+                                                    <svg xmlns="http://www.w3.org/2000/svg" class="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                                                    </svg>
+                                                </button>
+                                            </div>
+                                        </div>
+                                        <div class="text-gray-700 whitespace-pre-wrap text-[11px]">{{ reply.text }}</div>
+                                    </div>
+                                </div>
+
+                                <!-- Форма быстрого ответа -->
+                                <div class="flex items-center gap-1 pt-1">
+                                    <input 
+                                        type="text" 
+                                        v-model="replyInputText[comment.id]" 
+                                        @keydown.enter.prevent="addReply(comment.id)"
+                                        :placeholder="t('reply_placeholder')" 
+                                        class="flex-1 text-[11px] px-2 py-1 rounded-md border border-gray-200 focus:outline-none focus:border-blue-400 bg-gray-50/50"
+                                    >
+                                    <button 
+                                        @click="addReply(comment.id)" 
+                                        :disabled="!(replyInputText[comment.id] && replyInputText[comment.id].trim())"
+                                        class="px-2 py-1 bg-gray-100 hover:bg-blue-600 hover:text-white disabled:opacity-40 disabled:hover:bg-gray-100 disabled:hover:text-inherit rounded-md text-[11px] font-medium transition-colors"
+                                        :title="t('send_reply')"
+                                    >
+                                        <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                            <path stroke-linecap="round" stroke-linejoin="round" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+                                        </svg>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>

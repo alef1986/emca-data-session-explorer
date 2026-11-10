@@ -50,6 +50,25 @@ createApp({
         const hasSearched = ref(false);
         const activeLineId = ref(null);
 
+        // Подсветка текста и комментарии
+        const isTextSelected = ref(false);
+        const showHighlightPicker = ref(false);
+        const highlightColors = [
+            { name: 'yellow', hex: '#fef08a' },
+            { name: 'green', hex: '#86efac' },
+            { name: 'blue', hex: '#93c5fd' },
+            { name: 'purple', hex: '#d8b4fe' },
+            { name: 'pink', hex: '#f472b6' },
+            { name: 'orange', hex: '#fdba74' },
+            { name: 'teal', hex: '#5eead4' }
+        ];
+        const activeCommentId = ref(null);
+        const editingCommentId = ref(null);
+        const editingCommentText = ref('');
+        const replyInputText = ref({});
+        const commentsList = ref([]);
+        let yComments = null;
+
         let ydoc = null;
         let provider = null;
         const connectedPeers = ref(1);
@@ -80,7 +99,6 @@ createApp({
         let disableDragSelectionFn = null;
         let zoomRedrawTimer = null;
         let editor = null;
-        let yText = null;
         let currentActiveSegmentRange = null;
 
         const clearSegmentHighlight = () => {
@@ -243,8 +261,13 @@ createApp({
                 const reader = new FileReader();
                 reader.onload = (e) => {
                     try {
-                        localJsonBuffer.value = JSON.parse(e.target.result);
+                        const parsed = JSON.parse(e.target.result);
                         jsonFileName.value = file.name;
+                        if (isSessionStarted.value && ydoc) {
+                            loadInitialTranscript(parsed);
+                        } else {
+                            localJsonBuffer.value = parsed;
+                        }
                     } catch (err) {
                         alert("Error reading JSON file.");
                     }
@@ -355,22 +378,81 @@ createApp({
             },
         });
 
+        const CommentMark = Mark.create({
+            name: 'comment',
+            excludes: '',
+            addAttributes() {
+                return {
+                    commentId: {
+                        default: null,
+                        parseHTML: element => element.getAttribute('data-comment-id'),
+                        renderHTML: attributes => {
+                            if (!attributes.commentId) return {};
+                            return {
+                                'data-comment-id': attributes.commentId,
+                                class: 'emca-comment-mark'
+                            };
+                        }
+                    }
+                };
+            },
+            parseHTML() {
+                return [{ tag: 'span[data-comment-id]' }];
+            },
+            renderHTML({ HTMLAttributes }) {
+                return ['span', mergeAttributes(HTMLAttributes), 0];
+            }
+        });
+
+        const uint8ArrayToBase64 = (bytes) => {
+            let binary = '';
+            const len = bytes.byteLength;
+            for (let i = 0; i < len; i++) {
+                binary += String.fromCharCode(bytes[i]);
+            }
+            return window.btoa(binary);
+        };
+
+        const base64ToUint8Array = (base64) => {
+            const binary = window.atob(base64);
+            const len = binary.length;
+            const bytes = new Uint8Array(len);
+            for (let i = 0; i < len; i++) {
+                bytes[i] = binary.charCodeAt(i);
+            }
+            return bytes;
+        };
+
+        const updateCommentsFromYjs = () => {
+            if (!yComments) {
+                commentsList.value = [];
+                return;
+            }
+            const list = [];
+            yComments.forEach((val, key) => {
+                if (val) {
+                    list.push({ ...val, id: key });
+                }
+            });
+            list.sort((a, b) => new Date(a.createdAt || 0) - new Date(b.createdAt || 0));
+            commentsList.value = list;
+        };
+
         const initRichTextEditor = () => {
-            yText = ydoc.getText('emca-transcript');
-            
             const extensions = [
                 StarterKit,
                 TimecodeMark,
+                CommentMark,
                 Highlight.configure({ multicolor: true }),
                 TextAlign.configure({
                     types: ['heading', 'paragraph'],
                     alignments: ['left', 'justify'],
                     defaultAlignment: 'left',
                 }),
+                Collaboration.configure({ document: ydoc, field: 'emca-transcript' })
             ];
 
-            if (sessionMode.value !== 'local') {
-                extensions.push(Collaboration.configure({ document: ydoc, field: 'emca-transcript' }));
+            if (sessionMode.value !== 'local' && provider) {
                 extensions.push(CollaborationCursor.configure({
                     provider: provider,
                     user: {
@@ -391,11 +473,22 @@ createApp({
                 },
             });
 
+            const checkSelection = () => {
+                if (!editor) {
+                    isTextSelected.value = false;
+                    return;
+                }
+                const { from, to, empty } = editor.state.selection;
+                isTextSelected.value = !empty && (to - from > 0);
+            };
+
             editor.on('selectionUpdate', () => {
                 currentAlignment.value = editor.isActive({ textAlign: 'justify' }) ? 'justify' : 'left';
+                checkSelection();
             });
             editor.on('transaction', () => {
                 currentAlignment.value = editor.isActive({ textAlign: 'justify' }) ? 'justify' : 'left';
+                checkSelection();
                 if (highlightActiveSegment.value) {
                     updateActiveSegmentHighlight(currentTime.value);
                 }
@@ -406,6 +499,14 @@ createApp({
                 if (timecodeSpan) {
                     const startTime = parseFloat(timecodeSpan.getAttribute('data-start'));
                     if (!isNaN(startTime)) jumpTo(startTime);
+                }
+
+                const commentSpan = e.target.closest('[data-comment-id]');
+                if (commentSpan) {
+                    const cId = commentSpan.getAttribute('data-comment-id');
+                    if (cId) {
+                        selectComment(cId);
+                    }
                 }
             });
         };
@@ -455,10 +556,30 @@ createApp({
             return paragraphs.map(p => `<p>${p}</p>`).join('');
         };
 
-        const loadInitialTranscript = (jsonBuffer) => {
-            if (!editor) return;
-            const htmlContent = formatTranscriptToHtml(jsonBuffer, 1.0);
-            editor.commands.setContent(htmlContent);
+        const loadInitialTranscript = async (jsonBuffer) => {
+            if (!editor || !ydoc) return;
+            if (jsonBuffer && typeof jsonBuffer === 'object' && !Array.isArray(jsonBuffer)) {
+                if (jsonBuffer._yjs_state) {
+                    try {
+                        const yjsModule = await import('https://esm.sh/yjs@13.6.18');
+                        const Y = yjsModule.default || yjsModule;
+                        const update = base64ToUint8Array(jsonBuffer._yjs_state);
+                        Y.applyUpdate(ydoc, update);
+                    } catch (e) {
+                        console.error('Error applying CRDT update:', e);
+                    }
+                } else if (jsonBuffer.comments && yComments) {
+                    jsonBuffer.comments.forEach(c => {
+                        if (c && c.id) yComments.set(c.id, c);
+                    });
+                    if (jsonBuffer.content) {
+                        editor.commands.setContent(jsonBuffer.content);
+                    }
+                }
+            } else if (Array.isArray(jsonBuffer)) {
+                const htmlContent = formatTranscriptToHtml(jsonBuffer, 1.0);
+                editor.commands.setContent(htmlContent);
+            }
             nextTick(() => {
                 if (highlightActiveSegment.value) {
                     updateActiveSegmentHighlight(currentTime.value);
@@ -475,6 +596,11 @@ createApp({
                 const yjsModule = await import('https://esm.sh/yjs@13.6.18');
                 const Y = yjsModule.default || yjsModule;
                 ydoc = new Y.Doc();
+                yComments = ydoc.getMap('emca-comments');
+                yComments.observeDeep(() => {
+                    updateCommentsFromYjs();
+                });
+                updateCommentsFromYjs();
 
                 if (sessionMode.value === 'local') {
                     isSessionStarted.value = true;
@@ -522,8 +648,226 @@ createApp({
             }
         };
 
+        const toggleHighlightPicker = () => {
+            if (isTextSelected.value) {
+                showHighlightPicker.value = !showHighlightPicker.value;
+            }
+        };
+
         const applyHighlight = (colorHex) => {
             if (editor) editor.chain().focus().toggleHighlight({ color: colorHex }).run();
+            showHighlightPicker.value = false;
+        };
+
+        const clearHighlight = () => {
+            if (editor) editor.chain().focus().unsetHighlight().run();
+            showHighlightPicker.value = false;
+        };
+
+        const formatCommentTime = (isoString) => {
+            if (!isoString) return '';
+            try {
+                const d = new Date(isoString);
+                return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) + ' ' + d.toLocaleDateString([], { day: 'numeric', month: 'short' });
+            } catch {
+                return '';
+            }
+        };
+
+        const addCommentAtSelection = () => {
+            if (!editor || !isTextSelected.value) return;
+            const { from, to, empty } = editor.state.selection;
+            if (empty || from >= to) return;
+
+            const quote = editor.state.doc.textBetween(from, to, ' ').trim().slice(0, 150);
+            const commentId = 'c_' + Date.now() + '_' + Math.random().toString(36).substring(2, 8);
+
+            editor.chain().focus().setMark('comment', { commentId }).run();
+
+            const newComment = {
+                id: commentId,
+                author: userName.value.trim() || 'Anonymous',
+                text: '',
+                quote: quote,
+                createdAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString(),
+                replies: []
+            };
+
+            if (yComments) {
+                yComments.set(commentId, newComment);
+            }
+
+            activeCommentId.value = commentId;
+            editingCommentId.value = commentId;
+            editingCommentText.value = '';
+
+            nextTick(() => {
+                const card = document.getElementById('comment-card-' + commentId);
+                if (card) {
+                    card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                    const textarea = card.querySelector('textarea');
+                    if (textarea) textarea.focus();
+                }
+            });
+        };
+
+        const selectComment = (commentId) => {
+            activeCommentId.value = commentId;
+            nextTick(() => {
+                const card = document.getElementById('comment-card-' + commentId);
+                if (card) {
+                    card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                }
+            });
+        };
+
+        const jumpToCommentInEditor = (commentId) => {
+            activeCommentId.value = commentId;
+            if (!editorRef.value) return;
+            const markEl = editorRef.value.querySelector(`[data-comment-id="${commentId}"]`);
+            if (markEl) {
+                markEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                markEl.classList.add('emca-comment-pulse');
+                setTimeout(() => {
+                    markEl.classList.remove('emca-comment-pulse');
+                }, 1800);
+            }
+        };
+
+        const startEditComment = (comment) => {
+            editingCommentId.value = comment.id;
+            editingCommentText.value = comment.text || '';
+            nextTick(() => {
+                const card = document.getElementById('comment-card-' + comment.id);
+                if (card) {
+                    const textarea = card.querySelector('textarea');
+                    if (textarea) textarea.focus();
+                }
+            });
+        };
+
+        const saveCommentEdit = (commentId) => {
+            if (!yComments) return;
+            const existing = yComments.get(commentId);
+            if (!existing) return;
+
+            const trimmed = editingCommentText.value.trim();
+            if (!trimmed && (!existing.replies || existing.replies.length === 0)) {
+                deleteComment(commentId);
+                return;
+            }
+
+            yComments.set(commentId, {
+                ...existing,
+                text: trimmed,
+                updatedAt: new Date().toISOString()
+            });
+            editingCommentId.value = null;
+            editingCommentText.value = '';
+        };
+
+        const cancelCommentEdit = (commentId) => {
+            const existing = yComments ? yComments.get(commentId) : null;
+            if (existing && (!existing.text || existing.text.trim() === '') && (!existing.replies || existing.replies.length === 0)) {
+                deleteComment(commentId);
+            }
+            editingCommentId.value = null;
+            editingCommentText.value = '';
+        };
+
+        const deleteComment = (commentId) => {
+            if (editor) {
+                editor.commands.command(({ tr, dispatch }) => {
+                    if (dispatch) {
+                        tr.doc.descendants((node, pos) => {
+                            if (!node.marks || node.marks.length === 0) return;
+                            node.marks.forEach(mark => {
+                                if (mark.type.name === 'comment' && mark.attrs.commentId === commentId) {
+                                    tr.removeMark(pos, pos + node.nodeSize, mark);
+                                }
+                            });
+                        });
+                    }
+                    return true;
+                });
+            }
+
+            if (yComments) {
+                yComments.delete(commentId);
+            }
+
+            if (activeCommentId.value === commentId) activeCommentId.value = null;
+            if (editingCommentId.value === commentId) {
+                editingCommentId.value = null;
+                editingCommentText.value = '';
+            }
+        };
+
+        const addReply = (commentId) => {
+            const text = (replyInputText.value[commentId] || '').trim();
+            if (!text || !yComments) return;
+
+            const existing = yComments.get(commentId);
+            if (!existing) return;
+
+            const replies = Array.isArray(existing.replies) ? [...existing.replies] : [];
+            replies.push({
+                id: 'r_' + Date.now() + '_' + Math.random().toString(36).substring(2, 8),
+                author: userName.value.trim() || 'Anonymous',
+                text: text,
+                createdAt: new Date().toISOString()
+            });
+
+            yComments.set(commentId, {
+                ...existing,
+                replies: replies,
+                updatedAt: new Date().toISOString()
+            });
+
+            replyInputText.value[commentId] = '';
+        };
+
+        const deleteReply = (commentId, replyId) => {
+            if (!yComments) return;
+            const existing = yComments.get(commentId);
+            if (!existing || !Array.isArray(existing.replies)) return;
+
+            const replies = existing.replies.filter(r => r.id !== replyId);
+            yComments.set(commentId, {
+                ...existing,
+                replies: replies,
+                updatedAt: new Date().toISOString()
+            });
+        };
+
+        const exportJson = async () => {
+            if (!ydoc) return;
+            try {
+                const yjsModule = await import('https://esm.sh/yjs@13.6.18');
+                const Y = yjsModule.default || yjsModule;
+                const stateUpdate = Y.encodeStateAsUpdate(ydoc);
+                const base64State = uint8ArrayToBase64(stateUpdate);
+
+                const payload = {
+                    version: '2.0',
+                    exportedAt: new Date().toISOString(),
+                    audioFileName: audioFileName.value || '',
+                    comments: commentsList.value,
+                    _yjs_state: base64State
+                };
+
+                const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                const baseName = (audioFileName.value || 'session').replace(/\.[^/.]+$/, '');
+                a.href = url;
+                a.download = `${baseName}_annotated.json`;
+                a.click();
+                URL.revokeObjectURL(url);
+            } catch (err) {
+                console.error('Export error:', err);
+            }
         };
 
         const setAlignment = (align) => {
@@ -717,7 +1061,10 @@ createApp({
         };
 
         const togglePeersList = () => { showPeersList.value = !showPeersList.value; };
-        const closePopups = () => { showPeersList.value = false; };
+        const closePopups = () => { 
+            showPeersList.value = false; 
+            showHighlightPicker.value = false;
+        };
         const formatTime = (seconds) => {
             const m = Math.floor(seconds / 60).toString().padStart(2, '0');
             const s = Math.floor(seconds % 60).toString().padStart(2, '0');
@@ -759,7 +1106,11 @@ createApp({
             currentSearchIndex, hasSearched, isLoopMode, hasActiveLoop, isDraggingWave, onWaveWheel, onWavePointerDown,
             onWavePointerMove, onWavePointerUp, togglePlay, onZoom, jumpTo, toggleLoopMode, colorSwatches, closePopups,
             formatTime, executeSearch, nextSearch, prevSearch, exportBookmarks, localJsonBuffer, editorRef, applyHighlight,
-            setAlignment, currentAlignment, highlightActiveSegment
+            setAlignment, currentAlignment, highlightActiveSegment,
+            isTextSelected, showHighlightPicker, toggleHighlightPicker, highlightColors, clearHighlight,
+            commentsList, activeCommentId, selectComment, jumpToCommentInEditor, startEditComment, saveCommentEdit,
+            cancelCommentEdit, deleteComment, editingCommentId, editingCommentText, replyInputText, addReply, deleteReply,
+            addCommentAtSelection, formatCommentTime, exportJson
         };
     }
 }).mount('#app');
