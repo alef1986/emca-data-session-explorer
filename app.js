@@ -384,7 +384,10 @@ createApp({
                 element: editorRef.value,
                 extensions: extensions,
                 editorProps: {
-                    attributes: { class: 'prose max-w-none focus:outline-none min-h-[500px] leading-relaxed p-4' },
+                    attributes: {
+                        class: 'prose max-w-none focus:outline-none min-h-[500px] leading-relaxed p-4',
+                        spellcheck: 'false',
+                    },
                 },
             });
 
