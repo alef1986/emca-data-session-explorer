@@ -4,6 +4,12 @@ import Spectrogram from 'https://unpkg.com/wavesurfer.js@7/dist/plugins/spectrog
 import RegionsPlugin from 'https://unpkg.com/wavesurfer.js@7/dist/plugins/regions.esm.js';
 import { dictionary, colorSwatches } from './i18n.js';
 
+import { Editor, Mark, mergeAttributes } from 'https://esm.sh/@tiptap/core@2.2.4';
+import StarterKit from 'https://esm.sh/@tiptap/starter-kit@2.2.4';
+import Collaboration from 'https://esm.sh/@tiptap/extension-collaboration@2.2.4?deps=yjs@13.6.18';
+import CollaborationCursor from 'https://esm.sh/@tiptap/extension-collaboration-cursor@2.2.4?deps=yjs@13.6.18';
+import Highlight from 'https://esm.sh/@tiptap/extension-highlight@2.2.4';
+
 createApp({
     setup() {
         const locale = ref('ru');
@@ -33,16 +39,21 @@ createApp({
         
         const isDraggingAudio = ref(false);
         const isDraggingJson = ref(false);
+        const localJsonBuffer = ref(null); 
+
+        // Заглушки для сохранения работоспособности старых элементов UI (до их рефакторинга)
+        const bookmarkedLines = computed(() => []);
+        const searchQuery = ref('');
+        const searchResults = ref([]);
+        const currentSearchIndex = ref(0);
+        const hasSearched = ref(false);
+        const activeLineId = ref(null);
 
         let ydoc = null;
         let provider = null;
-        let yTranscript = null;
         const connectedPeers = ref(1);
         const peersList = ref([]);
         const showPeersList = ref(false);
-
-        const transcript = ref([]);
-        const localJsonBuffer = ref(null); 
 
         const currentTime = ref(0);
         const isPlaying = ref(false);
@@ -56,7 +67,7 @@ createApp({
         const freqMax = ref(500);
 
         const waveformRef = ref(null);
-        const transcriptContainer = ref(null);
+        const editorRef = ref(null);
         const autoScroll = ref(true);
         
         let ws = null;
@@ -65,22 +76,16 @@ createApp({
         let activeLoopRegion = null;
         let disableDragSelectionFn = null;
         let zoomRedrawTimer = null;
+        let editor = null;
+        let yText = null;
 
         const isDraggingWave = ref(false);
         let pointerStartX = 0;
         let initialScrollLeft = 0;
         let wasDragged = false;
-
-        const searchQuery = ref('');
-        const searchResults = ref([]);
-        const currentSearchIndex = ref(0);
-        const hasSearched = ref(false);
-
         const isLoopMode = ref(false);
         const hasActiveLoop = ref(false);
         let loopTimeout = null;
-
-        const openPickerId = ref(null);
 
         const activeSignalingServer = computed(() => {
             return serverPreset.value === 'public' ? 'wss://signaling.yjs.dev' : customServerUrl.value.trim();
@@ -94,7 +99,6 @@ createApp({
 
         const isReadyToStart = computed(() => {
             if (!userName.value.trim()) return false;
-            
             if (sessionMode.value !== 'local') {
                 if (serverPreset.value === 'custom') {
                     const url = customServerUrl.value.trim();
@@ -102,7 +106,6 @@ createApp({
                     if (url.length <= 6) return false;
                 }
             }
-
             if (sessionMode.value === 'local') return audioUrl.value !== '' && localJsonBuffer.value !== null;
             if (sessionMode.value === 'host') return audioUrl.value !== '' && localJsonBuffer.value !== null && roomName.value.trim() !== '';
             if (sessionMode.value === 'join') return audioUrl.value !== '' && roomName.value.trim() !== '';
@@ -139,12 +142,7 @@ createApp({
                 const reader = new FileReader();
                 reader.onload = (e) => {
                     try {
-                        const data = JSON.parse(e.target.result);
-                        localJsonBuffer.value = data.map(line => ({
-                            ...line,
-                            note: line.note || '',
-                            color: line.color || ''
-                        }));
+                        localJsonBuffer.value = JSON.parse(e.target.result);
                         jsonFileName.value = file.name;
                     } catch (err) {
                         alert("Error reading JSON file.");
@@ -218,12 +216,10 @@ createApp({
                             resolve();
                         }
                     };
-
                     testWs.onerror = () => {
                         clearTimeout(timeout);
                         fail("Сервер отклонил соединение. Проверьте правильность адреса.");
                     };
-
                     testWs.onclose = () => {
                         clearTimeout(timeout);
                         fail("Соединение разорвано на этапе рукопожатия.");
@@ -234,113 +230,133 @@ createApp({
             });
         };
 
-        const initP2P = async () => {
-            try {
-                const yjsModule = await import('https://esm.sh/yjs@13.6.18');
-                const webrtcModule = await import('https://esm.sh/y-webrtc@10.3.0?deps=yjs@13.6.18');
-                
-                const Y = yjsModule.default || yjsModule;
-                const WebrtcProvider = webrtcModule.WebrtcProvider;
-
-                ydoc = new Y.Doc();
-                
-                const providerOpts = { 
-                    signaling: [activeSignalingServer.value],
-                    peerOpts: {
-                        config: {
-                            iceServers: [
-                                { urls: 'stun:stun.l.google.com:19302' },
-                                { urls: 'stun:stun1.l.google.com:19302' },
-                                { urls: 'stun:stun.cloudflare.com:3478' }
-                            ]
-                        }
+        const TimecodeMark = Mark.create({
+            name: 'timecode',
+            addAttributes() {
+                return {
+                    start: {
+                        default: null,
+                        parseHTML: element => element.getAttribute('data-start'),
+                        renderHTML: attributes => ({ 'data-start': attributes.start }),
+                    },
+                    end: {
+                        default: null,
+                        parseHTML: element => element.getAttribute('data-end'),
+                        renderHTML: attributes => ({ 'data-end': attributes.end }),
                     }
-                };
-                if (roomPassword.value.trim() !== '') {
-                    providerOpts.password = roomPassword.value.trim();
                 }
+            },
+            parseHTML() { return [{ tag: 'span[data-start]' }] },
+            renderHTML({ HTMLAttributes }) {
+                return ['span', mergeAttributes(HTMLAttributes, { 
+                    class: 'timecode-segment hover:bg-gray-100 cursor-pointer transition-colors duration-150 rounded px-1' 
+                }), 0]
+            },
+        });
 
-                provider = new WebrtcProvider('emca-p2p-' + roomName.value.trim(), ydoc, providerOpts);
+        const initRichTextEditor = () => {
+            yText = ydoc.getText('emca-transcript');
+            
+            const extensions = [
+                StarterKit,
+                TimecodeMark,
+                Highlight.configure({ multicolor: true })
+            ];
 
-                provider.awareness.setLocalStateField('user', {
-                    name: userName.value.trim() || 'User ' + Math.floor(Math.random() * 1000)
-                });
-
-                provider.awareness.on('change', updatePeersList);
-                updatePeersList();
-
-                yTranscript = ydoc.getMap('transcript');
-
-                yTranscript.observe(() => {
-                    const arr = [];
-                    yTranscript.forEach((value) => arr.push(value));
-                    arr.sort((a, b) => a.id - b.id);
-                    transcript.value = arr;
-                });
-
-                if (localJsonBuffer.value && sessionMode.value === 'host') {
-                    ydoc.transact(() => {
-                        localJsonBuffer.value.forEach(line => {
-                            yTranscript.set(String(line.id), line);
-                        });
-                    });
-                    localJsonBuffer.value = null; 
-                }
-            } catch (err) {
-                console.error("Failed to load P2P modules:", err);
-                syncError.value = true;
-                throw new Error("Не удалось загрузить P2P библиотеки. Проверьте подключение к интернету.");
+            if (sessionMode.value !== 'local') {
+                extensions.push(Collaboration.configure({ document: ydoc, field: 'emca-transcript' }));
+                extensions.push(CollaborationCursor.configure({
+                    provider: provider,
+                    user: {
+                        name: userName.value,
+                        color: colorSwatches[Math.floor(Math.random() * colorSwatches.length)].barClass.replace('bg-', '')
+                    }
+                }));
             }
+
+            editor = new Editor({
+                element: editorRef.value,
+                extensions: extensions,
+                editorProps: {
+                    attributes: { class: 'prose max-w-none focus:outline-none min-h-[500px] leading-relaxed p-4' },
+                },
+            });
+
+            editor.view.dom.addEventListener('click', (e) => {
+                const timecodeSpan = e.target.closest('[data-start]');
+                if (timecodeSpan) {
+                    const startTime = parseFloat(timecodeSpan.getAttribute('data-start'));
+                    if (!isNaN(startTime)) jumpTo(startTime);
+                }
+            });
         };
 
-        const applyLineUpdate = (line, updates) => {
-            try {
-                if (sessionMode.value === 'local') {
-                    const index = transcript.value.findIndex(l => l.id === line.id);
-                    if (index !== -1) {
-                        transcript.value[index] = { ...transcript.value[index], ...updates };
-                    }
-                } else {
-                    if (yTranscript) {
-                        const currentLine = yTranscript.get(String(line.id));
-                        yTranscript.set(String(line.id), { ...currentLine, ...updates });
-                    } else {
-                        throw new Error("P2P network object not initialized");
-                    }
-                }
-                syncError.value = false;
-            } catch (e) {
-                console.error("Sync error:", e);
-                syncError.value = true;
-                connectionState.value = 'error';
-            }
+        const loadInitialTranscript = (jsonBuffer) => {
+            if (!editor) return;
+            const htmlContent = jsonBuffer.map(line => {
+                return `<p><span data-start="${line.start}" data-end="${line.end}">${line.text}</span></p>`;
+            }).join('');
+            editor.commands.setContent(htmlContent);
         };
 
         const startSession = async () => {
             highlightErrors.value = true;
             if (!isReadyToStart.value) return;
-            
             connectionErrorMsg.value = '';
-            
-            if (sessionMode.value === 'local') {
-                transcript.value = [...localJsonBuffer.value];
-                localJsonBuffer.value = null;
-                isSessionStarted.value = true;
-                nextTick(() => { initPlayer(); });
-            } else {
-                isConnectingP2P.value = true;
-                try {
-                    await checkServerConnection(activeSignalingServer.value);
-                    await initP2P();
-                    connectionState.value = 'waiting';
-                    isConnectingP2P.value = false;
+
+            try {
+                const yjsModule = await import('https://esm.sh/yjs@13.6.18');
+                const Y = yjsModule.default || yjsModule;
+                ydoc = new Y.Doc();
+
+                if (sessionMode.value === 'local') {
                     isSessionStarted.value = true;
-                    nextTick(() => { initPlayer(); });
-                } catch (e) {
+                    nextTick(() => { 
+                        initPlayer(); 
+                        initRichTextEditor();
+                        if (localJsonBuffer.value) {
+                            loadInitialTranscript(localJsonBuffer.value);
+                            localJsonBuffer.value = null;
+                        }
+                    });
+                } else {
+                    isConnectingP2P.value = true;
+                    await checkServerConnection(activeSignalingServer.value);
+                    const webrtcModule = await import('https://esm.sh/y-webrtc@10.3.0?deps=yjs@13.6.18');
+                    const WebrtcProvider = webrtcModule.WebrtcProvider;
+
+                    const providerOpts = { 
+                        signaling: [activeSignalingServer.value],
+                        peerOpts: { config: { iceServers: [ { urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun.cloudflare.com:3478' } ] } }
+                    };
+                    if (roomPassword.value.trim() !== '') providerOpts.password = roomPassword.value.trim();
+
+                    provider = new WebrtcProvider('emca-p2p-' + roomName.value.trim(), ydoc, providerOpts);
+                    provider.awareness.setLocalStateField('user', { name: userName.value.trim() || 'User ' + Math.floor(Math.random() * 1000) });
+                    provider.awareness.on('change', updatePeersList);
+                    updatePeersList();
+
                     isConnectingP2P.value = false;
-                    connectionErrorMsg.value = e.message;
+                    connectionState.value = 'waiting';
+                    isSessionStarted.value = true;
+                    
+                    nextTick(() => { 
+                        initPlayer(); 
+                        initRichTextEditor();
+                        if (sessionMode.value === 'host' && localJsonBuffer.value) {
+                            loadInitialTranscript(localJsonBuffer.value);
+                            localJsonBuffer.value = null; 
+                        }
+                    });
                 }
+            } catch (e) {
+                isConnectingP2P.value = false;
+                connectionErrorMsg.value = e.message;
             }
+        };
+
+        const applyHighlight = (colorHex) => {
+            if (editor) editor.chain().focus().toggleHighlight({ color: colorHex }).run();
         };
 
         const initSpectrogram = () => {
@@ -349,12 +365,8 @@ createApp({
                 try { activeSpectrogramPlugin.destroy(); } catch (e) {}
             }
             activeSpectrogramPlugin = Spectrogram.create({
-                labels: false,
-                height: 120,
-                splitChannels: false,
-                frequencyMin: freqMin.value,
-                frequencyMax: freqMax.value,
-                fftSamples: 2048
+                labels: false, height: 120, splitChannels: false,
+                frequencyMin: freqMin.value, frequencyMax: freqMax.value, fftSamples: 2048
             });
             ws.registerPlugin(activeSpectrogramPlugin);
         };
@@ -379,47 +391,30 @@ createApp({
 
         const initPlayer = () => {
             regionsPlugin = RegionsPlugin.create();
-
             ws = WaveSurfer.create({
-                container: waveformRef.value,
-                waveColor: '#60a5fa',
-                progressColor: '#2563eb',
-                cursorColor: '#ef4444',
-                cursorWidth: 2,
-                height: 80,
-                interact: false, 
-                autoCenter: autoScroll.value,
-                url: audioUrl.value,
-                plugins: [regionsPlugin]
+                container: waveformRef.value, waveColor: '#60a5fa', progressColor: '#2563eb', cursorColor: '#ef4444',
+                cursorWidth: 2, height: 80, interact: false, autoCenter: autoScroll.value, url: audioUrl.value, plugins: [regionsPlugin]
             });
 
             initSpectrogram();
-
             ws.on('ready', () => { isAudioReady.value = true; });
             ws.on('play', () => { isPlaying.value = true; });
             ws.on('pause', () => { isPlaying.value = false; });
             ws.on('timeupdate', (time) => { currentTime.value = time; });
 
             regionsPlugin.on('region-created', (region) => {
-                if (activeLoopRegion && activeLoopRegion !== region) {
-                    activeLoopRegion.remove();
-                }
+                if (activeLoopRegion && activeLoopRegion !== region) activeLoopRegion.remove();
                 activeLoopRegion = region;
                 hasActiveLoop.value = true;
             });
-
-            regionsPlugin.on('region-updated', () => {
-                clearTimeout(loopTimeout);
-            });
+            regionsPlugin.on('region-updated', () => { clearTimeout(loopTimeout); });
         };
 
         const onWaveWheel = (e) => {
             if (!ws || !isAudioReady.value) return;
-
             if (e.ctrlKey || e.metaKey) {
                 e.preventDefault();
-                if (e.deltaY > 0) zoomOut();
-                else zoomIn();
+                if (e.deltaY > 0) zoomOut(); else zoomIn();
             } else {
                 const sc = getScrollContainer();
                 if (sc) {
@@ -442,9 +437,7 @@ createApp({
         const onWavePointerMove = (e) => {
             if (!isDraggingWave.value || isLoopMode.value || !ws) return;
             const dx = e.clientX - pointerStartX;
-            if (Math.abs(dx) > 5) {
-                wasDragged = true;
-            }
+            if (Math.abs(dx) > 5) wasDragged = true;
             if (wasDragged) {
                 const sc = getScrollContainer();
                 if (sc) sc.scrollLeft = initialScrollLeft - dx;
@@ -462,10 +455,8 @@ createApp({
                 if (sc && wrapper) {
                     const rect = sc.getBoundingClientRect();
                     const clickX = e.clientX - rect.left;
-                    const scrollX = sc.scrollLeft;
-                    const trueX = scrollX + clickX;
+                    const trueX = sc.scrollLeft + clickX;
                     const totalWidth = wrapper.offsetWidth;
-                    
                     if (totalWidth > 0) {
                         const targetRatio = Math.max(0, Math.min(1, trueX / totalWidth));
                         ws.setTime(targetRatio * ws.getDuration());
@@ -478,6 +469,7 @@ createApp({
         onUnmounted(() => { 
             clearTimeout(loopTimeout);
             clearTimeout(zoomRedrawTimer);
+            if (editor) editor.destroy();
             if (ws) ws.destroy(); 
             if (provider) provider.destroy();
             if (ydoc) ydoc.destroy();
@@ -499,24 +491,14 @@ createApp({
             }
         };
         
-        const zoomIn = () => {
-            zoomLevel.value = Math.min(500, Number(zoomLevel.value) + zoomStep);
-            onZoom();
-        };
-        
-        const zoomOut = () => {
-            zoomLevel.value = Math.max(10, Number(zoomLevel.value) - zoomStep);
-            onZoom();
-        };
+        const zoomIn = () => { zoomLevel.value = Math.min(500, Number(zoomLevel.value) + zoomStep); onZoom(); };
+        const zoomOut = () => { zoomLevel.value = Math.max(10, Number(zoomLevel.value) - zoomStep); onZoom(); };
 
         const onZoom = () => { 
             if (!ws) return;
             ws.zoom(Number(zoomLevel.value));
-            
             clearTimeout(zoomRedrawTimer);
-            zoomRedrawTimer = setTimeout(() => {
-                initSpectrogram();
-            }, 300);
+            zoomRedrawTimer = setTimeout(() => { initSpectrogram(); }, 300);
         };
 
         const jumpTo = (time) => {
@@ -532,73 +514,17 @@ createApp({
 
             if (isLoopMode.value) {
                 if (ws && isPlaying.value) ws.pause();
-                if (regionsPlugin) {
-                    disableDragSelectionFn = regionsPlugin.enableDragSelection({
-                        color: 'rgba(147, 51, 234, 0.35)'
-                    });
-                }
+                if (regionsPlugin) disableDragSelectionFn = regionsPlugin.enableDragSelection({ color: 'rgba(147, 51, 234, 0.35)' });
             } else {
-                if (disableDragSelectionFn) {
-                    disableDragSelectionFn();
-                    disableDragSelectionFn = null;
-                }
-                if (regionsPlugin) {
-                    regionsPlugin.clearRegions();
-                }
+                if (disableDragSelectionFn) { disableDragSelectionFn(); disableDragSelectionFn = null; }
+                if (regionsPlugin) regionsPlugin.clearRegions();
                 activeLoopRegion = null;
                 hasActiveLoop.value = false;
             }
         };
 
-        const isLineInLoop = (id) => {
-            if (!isLoopMode.value || !activeLoopRegion) return false;
-            const line = transcript.value.find(l => l.id === id);
-            if (!line) return false;
-            return line.start < activeLoopRegion.end && line.end > activeLoopRegion.start;
-        };
-
-        const togglePeersList = () => {
-            showPeersList.value = !showPeersList.value;
-            if (showPeersList.value) openPickerId.value = null;
-        };
-
-        const toggleColorPicker = (id) => { 
-            openPickerId.value = openPickerId.value === id ? null : id;
-            if (openPickerId.value) showPeersList.value = false;
-        };
-
-        const closePopups = () => {
-            openPickerId.value = null;
-            showPeersList.value = false;
-        };
-
-        const setLineColor = (line, colorKey) => {
-            applyLineUpdate(line, { color: colorKey });
-            openPickerId.value = null;
-        };
-
-        const toggleBookmark = (line) => {
-            const isBookmarked = !line.is_bookmarked;
-            applyLineUpdate(line, { 
-                is_bookmarked: isBookmarked, 
-                note: (isBookmarked && !line.note) ? '' : line.note 
-            });
-        };
-
-        const updateNote = (line, newNote) => {
-            applyLineUpdate(line, { note: newNote });
-        };
-
-        const getColorBarClass = (colorKey) => {
-            const found = colorSwatches.find(s => s.key === (colorKey || ''));
-            return found ? found.barClass : colorSwatches[0].barClass;
-        };
-
-        const getLineCardClasses = (line) => {
-            const found = colorSwatches.find(s => s.key === (line.color || '')) || colorSwatches[0];
-            return activeLineId.value === line.id ? found.activeCardClass : found.cardClass;
-        };
-
+        const togglePeersList = () => { showPeersList.value = !showPeersList.value; };
+        const closePopups = () => { showPeersList.value = false; };
         const formatTime = (seconds) => {
             const m = Math.floor(seconds / 60).toString().padStart(2, '0');
             const s = Math.floor(seconds % 60).toString().padStart(2, '0');
@@ -606,122 +532,12 @@ createApp({
             return `${m}:${s}.${ms}`;
         };
 
-        const safeScrollToElement = (id) => {
-            const element = document.getElementById(id);
-            const container = transcriptContainer.value;
-            if (element && container) {
-                const containerRect = container.getBoundingClientRect();
-                const elementRect = element.getBoundingClientRect();
-                const targetTop = container.scrollTop + (elementRect.top - containerRect.top) - (containerRect.height / 2) + (elementRect.height / 2);
-                container.scrollTo({ top: targetTop, behavior: 'smooth' });
-            }
-        };
+        const executeSearch = () => { hasSearched.value = true; };
+        const nextSearch = () => {};
+        const prevSearch = () => {};
+        const exportBookmarks = () => {};
 
-        const executeSearch = () => {
-            hasSearched.value = true;
-            const query = searchQuery.value.trim().toLowerCase();
-            if (!query) {
-                searchResults.value = [];
-                return;
-            }
-            searchResults.value = transcript.value.filter(line => 
-                line.text.toLowerCase().includes(query)
-            );
-            if (searchResults.value.length > 0) {
-                currentSearchIndex.value = 0;
-                navigateToSearchResult();
-            }
-        };
-
-        const nextSearch = () => {
-            if (searchResults.value.length === 0) return;
-            currentSearchIndex.value = (currentSearchIndex.value + 1) % searchResults.value.length;
-            navigateToSearchResult();
-        };
-
-        const prevSearch = () => {
-            if (searchResults.value.length === 0) return;
-            currentSearchIndex.value = (currentSearchIndex.value - 1 + searchResults.value.length) % searchResults.value.length;
-            navigateToSearchResult();
-        };
-
-        const navigateToSearchResult = () => {
-            const targetLine = searchResults.value[currentSearchIndex.value];
-            if (targetLine) {
-                const previousAutoScroll = autoScroll.value;
-                autoScroll.value = false;
-                if (ws && isPlaying.value) ws.pause();
-                
-                nextTick(() => {
-                    safeScrollToElement('line-' + targetLine.id);
-                    setTimeout(() => { autoScroll.value = previousAutoScroll; }, 500);
-                });
-            }
-        };
-
-        const isSearchMatch = (id) => {
-            if (searchResults.value.length === 0) return false;
-            return searchResults.value[currentSearchIndex.value].id === id;
-        };
-
-        const exportBookmarks = () => {
-            const dataToSave = transcript.value
-                .filter(l => l.is_bookmarked || l.color || l.note) 
-                .map(l => ({
-                    id: l.id,
-                    start: l.start,
-                    end: l.end,
-                    text: l.text,
-                    is_bookmarked: l.is_bookmarked,
-                    note: l.note,
-                    color: l.color || ''
-                }));
-            const blob = new Blob([JSON.stringify(dataToSave, null, 2)], { type: 'application/json' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = 'emca_session_notes.json';
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            URL.revokeObjectURL(url);
-        };
-
-        const importBookmarks = (event) => {
-            const file = event.target.files[0];
-            if (!file) return;
-            const reader = new FileReader();
-            reader.onload = (e) => {
-                try {
-                    const importedData = JSON.parse(e.target.result);
-                    importedData.forEach(importedLine => {
-                        const line = transcript.value.find(l => l.id === importedLine.id);
-                        if (line) {
-                            applyLineUpdate(line, {
-                                is_bookmarked: importedLine.is_bookmarked ?? true,
-                                note: importedLine.note || '',
-                                color: importedLine.color || ''
-                            });
-                        }
-                    });
-                } catch (err) {
-                    alert("Error reading JSON file. Check format.");
-                }
-            };
-            reader.readAsText(file);
-            event.target.value = '';
-        };
-
-        const activeLineId = computed(() => {
-            const line = transcript.value.find(l => currentTime.value >= l.start && currentTime.value <= l.end);
-            return line ? line.id : null;
-        });
-
-        const bookmarkedLines = computed(() => transcript.value.filter(l => l.is_bookmarked));
-
-        watch(autoScroll, (newVal) => {
-            if (ws) ws.setOptions({ autoCenter: newVal });
-        });
+        watch(autoScroll, (newVal) => { if (ws) ws.setOptions({ autoCenter: newVal }); });
 
         watch(currentTime, async (newTime) => {
             if (isLoopMode.value && isPlaying.value && activeLoopRegion) {
@@ -735,94 +551,18 @@ createApp({
                     }, 1000);
                 }
             }
-
-            const currentId = activeLineId.value;
-            if (currentId && autoScroll.value) {
-                await nextTick();
-                safeScrollToElement('line-' + currentId);
-            }
         });
 
         return {
-            locale,
-            t,
-            toggleLocale,
-            sessionMode,
-            setMode,
-            isSessionStarted,
-            isConnectingP2P,
-            connectionState,
-            syncError,
-            connectionErrorMsg,
-            highlightErrors,
-            audioUrl,
-            audioFileName,
-            jsonFileName,
-            userName,
-            roomName,
-            roomPassword,
-            serverPreset,
-            customServerUrl,
-            isReadyToStart,
-            isDraggingAudio,
-            isDraggingJson,
-            handleStartAudio,
-            handleStartJson,
-            handleAudioDrop,
-            handleJsonDrop,
-            startSession,
-            transcript,
-            connectedPeers,
-            peersList,
-            showPeersList,
-            togglePeersList,
-            currentTime,
-            isPlaying,
-            isAudioReady,
-            zoomLevel,
-            zoomIn,
-            zoomOut,
-            freqMinInput,
-            freqMaxInput,
-            freqLabels,
-            applyFrequencyRange,
-            waveformRef,
-            transcriptContainer,
-            autoScroll,
-            activeLineId,
-            bookmarkedLines,
-            searchQuery,
-            searchResults,
-            currentSearchIndex,
-            hasSearched,
-            isLoopMode,
-            hasActiveLoop,
-            isDraggingWave,
-            onWaveWheel,
-            onWavePointerDown,
-            onWavePointerMove,
-            onWavePointerUp,
-            togglePlay,
-            onZoom,
-            jumpTo,
-            toggleLoopMode,
-            colorSwatches,
-            openPickerId,
-            toggleColorPicker,
-            closePopups,
-            setLineColor,
-            getColorBarClass,
-            getLineCardClasses,
-            toggleBookmark,
-            updateNote,
-            formatTime,
-            executeSearch,
-            nextSearch,
-            prevSearch,
-            isSearchMatch,
-            exportBookmarks,
-            importBookmarks,
-            localJsonBuffer
+            locale, t, toggleLocale, sessionMode, setMode, isSessionStarted, isConnectingP2P, connectionState, syncError,
+            connectionErrorMsg, highlightErrors, audioUrl, audioFileName, jsonFileName, userName, roomName, roomPassword,
+            serverPreset, customServerUrl, isReadyToStart, isDraggingAudio, isDraggingJson, handleStartAudio, handleStartJson,
+            handleAudioDrop, handleJsonDrop, startSession, connectedPeers, peersList, showPeersList, togglePeersList,
+            currentTime, isPlaying, isAudioReady, zoomLevel, zoomIn, zoomOut, freqMinInput, freqMaxInput, freqLabels,
+            applyFrequencyRange, waveformRef, autoScroll, activeLineId, bookmarkedLines, searchQuery, searchResults,
+            currentSearchIndex, hasSearched, isLoopMode, hasActiveLoop, isDraggingWave, onWaveWheel, onWavePointerDown,
+            onWavePointerMove, onWavePointerUp, togglePlay, onZoom, jumpTo, toggleLoopMode, colorSwatches, closePopups,
+            formatTime, executeSearch, nextSearch, prevSearch, exportBookmarks, localJsonBuffer, editorRef, applyHighlight
         };
     }
 }).mount('#app');

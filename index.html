@@ -8,6 +8,14 @@
     <!-- Предупреждение от Tailwind в консоли - это нормально для режима без сборки -->
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="./style.css">
+    <style>
+        /* Tiptap styles */
+        .ProseMirror p { margin-top: 0.5em; margin-bottom: 0.5em; }
+        .ProseMirror-focused { outline: none; }
+        /* Cursors */
+        .collaboration-cursor__caret { border-left: 2px solid #0d0d0d; margin-left: -1px; margin-right: -1px; pointer-events: none; position: relative; word-break: normal; }
+        .collaboration-cursor__label { border-radius: 3px 3px 3px 0; color: #0d0d0d; font-size: 12px; font-style: normal; font-weight: 600; left: -1px; line-height: normal; padding: 0.1rem 0.3rem; position: absolute; top: -1.4em; user-select: none; white-space: nowrap; }
+    </style>
 </head>
 <body class="bg-gray-50 text-gray-800 font-sans h-[100dvh] flex flex-col overflow-hidden select-none">
 
@@ -267,21 +275,6 @@
                         </div>
                     </div>
                 </div>
-
-                <div v-if="syncError" class="mx-0 mt-0 bg-red-50 border border-red-200 p-3 rounded-lg flex justify-between items-center shrink-0 shadow-sm animate-pulse">
-                    <div class="flex items-center gap-3">
-                        <div class="p-2 bg-red-100 text-red-600 rounded-full">
-                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-5 h-5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
-                        </div>
-                        <div>
-                            <h3 class="text-red-800 font-bold text-sm">{{ t('status_error') }}</h3>
-                            <p class="text-red-600 text-xs mt-0.5">{{ t('error_advice') }}</p>
-                        </div>
-                    </div>
-                    <button @click="exportBookmarks" class="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-md font-medium text-sm transition-colors shadow-sm whitespace-nowrap">
-                        {{ t('save_json') }}
-                    </button>
-                </div>
                 
                 <div 
                     class="relative w-full rounded-lg bg-[#1e1e1e] border border-gray-300 overflow-hidden shrink-0"
@@ -311,76 +304,19 @@
             </div>
 
             <div class="flex flex-row gap-4 flex-1 min-h-0 overflow-hidden">
-                <div class="w-2/3 bg-white p-4 rounded-xl shadow-sm border border-gray-200 flex flex-col gap-3 h-full">
-                    <div class="flex justify-between items-center">
+                <div class="w-2/3 flex-1 bg-white p-4 rounded-xl shadow-sm border border-gray-200 flex flex-col h-full overflow-hidden">
+                    <div class="flex justify-between items-center mb-4 shrink-0">
                         <h2 class="font-semibold text-lg">{{ t('transcript') }}</h2>
-                        <label class="flex items-center gap-2 text-sm text-gray-600 cursor-pointer">
-                            <input type="checkbox" v-model="autoScroll" class="rounded text-blue-600 focus:ring-blue-500">
-                            {{ t('autoscroll') }}
-                        </label>
-                    </div>
-
-                    <div class="flex gap-2 items-center bg-gray-50 p-2 rounded-lg border border-gray-200 shrink-0">
-                        <input type="text" v-model="searchQuery" @keyup.enter="executeSearch" :placeholder="t('search_placeholder')" class="flex-1 px-3 py-1.5 text-sm rounded-md border border-gray-300 focus:outline-none focus:border-blue-500 select-text">
-                        <button @click="executeSearch" class="bg-gray-200 hover:bg-gray-300 text-gray-700 px-3 py-1.5 text-sm rounded-md font-medium transition-colors">{{ t('search_button') }}</button>
-                        
-                        <div class="flex items-center gap-1 border-l border-gray-300 pl-2 ml-1" v-if="searchResults.length > 0">
-                            <span class="text-xs text-gray-500 mr-2">{{ currentSearchIndex + 1 }} {{ t('of') }} {{ searchResults.length }}</span>
-                            <button @click="prevSearch" class="p-1.5 hover:bg-gray-200 rounded text-gray-600"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-4 h-4"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7" /></svg></button>
-                            <button @click="nextSearch" class="p-1.5 hover:bg-gray-200 rounded text-gray-600"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-4 h-4"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" /></svg></button>
+                        <!-- Меню форматирования для Tiptap -->
+                        <div class="flex gap-2">
+                            <button @click="applyHighlight('#fde047')" class="w-6 h-6 rounded-full bg-yellow-300 hover:ring-2 ring-offset-1"></button>
+                            <button @click="applyHighlight('#86efac')" class="w-6 h-6 rounded-full bg-green-300 hover:ring-2 ring-offset-1"></button>
                         </div>
-                        <div v-else-if="searchQuery && hasSearched" class="text-xs text-red-500 ml-2">{{ t('not_found') }}</div>
                     </div>
-
-                    <div class="overflow-y-auto flex-1 pr-3 space-y-1.5" ref="transcriptContainer">
-                        <div 
-                            v-for="line in transcript" :key="line.id" :id="'line-' + line.id"
-                            class="group relative flex gap-3 p-2.5 pr-5 rounded-lg transition-all duration-150 border"
-                            :class="[
-                                getLineCardClasses(line),
-                                activeLineId === line.id ? 'ring-2 ring-amber-400 shadow-sm' : '',
-                                isSearchMatch(line.id) && activeLineId !== line.id ? 'ring-2 ring-blue-400' : ''
-                            ]"
-                        >
-                            <div class="flex flex-col items-center gap-2 w-10 shrink-0 pt-0.5">
-                                <span class="text-xs font-mono" :class="activeLineId === line.id ? 'text-amber-700 font-bold' : 'text-gray-400'">{{ line.id }}</span>
-                                <button @click.stop="toggleBookmark(line)" class="text-gray-300 hover:text-blue-500 focus:outline-none transition-colors" :class="{ '!text-blue-600': line.is_bookmarked }">
-                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="w-5 h-5"><path fill-rule="evenodd" d="M6.32 2.577a49.255 49.255 0 0 1 11.36 0c1.497.174 2.57 1.46 2.57 2.93V21a.75.75 0 0 1-1.085.67L12 18.089l-7.165 3.583A.75.75 0 0 1 3.75 21V5.507c0-1.47 1.073-2.756 2.57-2.93Z" clip-rule="evenodd" /></svg>
-                                </button>
-                            </div>
-
-                            <div class="flex-1 cursor-pointer select-text" @click="jumpTo(line.start)">
-                                <div class="flex items-center gap-2 text-xs font-mono text-gray-400 mb-1">
-                                    <span>{{ formatTime(line.start) }} – {{ formatTime(line.end) }}</span>
-                                    <span v-if="activeLineId === line.id" class="inline-block w-2 h-2 rounded-full bg-amber-500 animate-ping"></span>
-                                </div>
-                                <p class="text-gray-800 leading-relaxed">{{ line.text }}</p>
-                            </div>
-
-                            <div 
-                                @click.stop="toggleColorPicker(line.id)"
-                                class="w-2.5 rounded-r-lg cursor-pointer transition-all absolute right-0 top-0 bottom-0 hover:w-3.5"
-                                :class="getColorBarClass(line.color)"
-                                :title="t('color_tag')"
-                            ></div>
-
-                            <div 
-                                v-if="openPickerId === line.id" 
-                                @click.stop
-                                class="absolute right-5 top-1/2 -translate-y-1/2 z-30 bg-white shadow-lg border border-gray-200 rounded-lg p-1.5 flex items-center gap-1.5"
-                            >
-                                <button 
-                                    v-for="swatch in colorSwatches" 
-                                    :key="swatch.key"
-                                    @click="setLineColor(line, swatch.key)"
-                                    class="w-5 h-5 rounded-full border transition-transform hover:scale-110 flex items-center justify-center"
-                                    :class="[swatch.DotClass, line.color === swatch.key ? 'ring-2 ring-offset-1 ring-gray-700' : 'border-gray-300']"
-                                    :title="swatch.key"
-                                >
-                                    <span v-if="swatch.key === ''" class="text-[10px] text-gray-400">✕</span>
-                                </button>
-                            </div>
-                        </div>
+                    
+                    <!-- Контейнер для Rich Text -->
+                    <div class="overflow-y-auto flex-1 pr-3">
+                        <div ref="editorRef" class="w-full h-full text-gray-800"></div>
                     </div>
                 </div>
 
@@ -390,34 +326,9 @@
                             <span>{{ t('bookmarks') }}</span>
                             <span class="text-sm bg-blue-100 text-blue-800 py-0.5 px-2.5 rounded-full">{{ bookmarkedLines.length }}</span>
                         </h2>
-                        
-                        <div class="flex gap-2">
-                            <button @click="exportBookmarks" class="text-xs bg-emerald-100 text-emerald-800 hover:bg-emerald-200 px-2.5 py-1.5 rounded-lg transition-colors font-medium flex items-center gap-1">
-                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-4 h-4"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" /></svg>
-                                {{ t('save_json') }}
-                            </button>
-                        </div>
                     </div>
                     
-                    <div class="overflow-y-auto flex-1 pr-2 space-y-4" v-if="bookmarkedLines.length > 0">
-                        <div v-for="line in bookmarkedLines" :key="'bookmark-' + line.id" class="p-3 bg-blue-50/50 rounded-lg border border-blue-100 relative overflow-hidden shrink-0">
-                            <div v-if="line.color" class="absolute right-0 top-0 bottom-0 w-1.5" :class="getColorBarClass(line.color)"></div>
-                            
-                            <div class="flex justify-between items-start cursor-pointer hover:text-blue-700 transition-colors mb-2 pr-2" @click="jumpTo(line.start)">
-                                <div class="text-xs text-blue-600 font-mono font-medium">{{ t('line') }} {{ line.id }}</div>
-                                <div class="text-xs text-gray-500 font-mono">{{ formatTime(line.start) }} – {{ formatTime(line.end) }}</div>
-                            </div>
-                            <p class="text-sm text-gray-700 mb-3 bg-white p-2 rounded border border-gray-100 shadow-sm select-text">{{ line.text }}</p>
-                            
-                            <textarea 
-                                :value="line.note" 
-                                @input="updateNote(line, $event.target.value)"
-                                rows="3" class="w-full text-sm p-2 rounded-md border border-gray-200 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none resize-y select-text" 
-                                :placeholder="t('note_placeholder')">
-                            </textarea>
-                        </div>
-                    </div>
-                    <div v-else class="text-gray-400 text-sm text-center mt-10">
+                    <div class="text-gray-400 text-sm text-center mt-10">
                         {{ t('no_bookmarks') }}
                     </div>
                 </div>
