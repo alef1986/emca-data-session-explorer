@@ -34,3 +34,11 @@
 **Task:**
 * Ensure the "Save JSON" export function reliably captures `Y.Text` formatting markers.
 * Implement a robust import merge strategy so users can re-upload an annotated JSON file into a session without overwriting base transcript data or duplicating existing bookmarks.
+
+### [Feature] Offline CRDT State Merging (Asynchronous Collaboration)
+**Context:** Researchers may work on the same base transcript independently while offline, resulting in two diverged files. We need a way to merge these files automatically without Git-style manual conflict resolution UI.
+**Task:**
+* Modify the "Save JSON" export logic to include the serialized CRDT state vector (`Y.encodeStateAsUpdate(ydoc)`) encoded as a Base64 string within the JSON payload.
+* Modify the file drop/import logic to detect this `_yjs_state` field.
+* If detected, decode the Base64 string and apply it using `Y.applyUpdate(ydoc, update)`.
+* Rely on Yjs's inherent CRDT mathematical properties to automatically resolve concurrent offline edits and propagate the merged state seamlessly across the active WebRTC mesh.
