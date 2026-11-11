@@ -10,6 +10,394 @@ import Collaboration from 'https://esm.sh/@tiptap/extension-collaboration@2.2.4?
 import CollaborationCursor from 'https://esm.sh/@tiptap/extension-collaboration-cursor@2.2.4?deps=yjs@13.6.18';
 import TextAlign from 'https://esm.sh/@tiptap/extension-text-align@2.2.4';
 
+export const decodeHtmlEntities = (str) => {
+    if (!str || typeof str !== 'string') return '';
+    let res = str;
+
+    for (let i = 0; i < 2; i++) {
+        if (!res.includes('&')) break;
+
+        res = res
+            .replace(/&#(\d+);?/g, (_, dec) => {
+                const code = parseInt(dec, 10);
+                if (!isNaN(code) && code > 0 && code <= 0x10FFFF) {
+                    try { return String.fromCodePoint(code); } catch { return _; }
+                }
+                return _;
+            })
+            .replace(/&#x([0-9a-fA-F]+);?/gi, (_, hex) => {
+                const code = parseInt(hex, 16);
+                if (!isNaN(code) && code > 0 && code <= 0x10FFFF) {
+                    try { return String.fromCodePoint(code); } catch { return _; }
+                }
+                return _;
+            });
+
+        if (typeof document !== 'undefined') {
+            const txt = document.createElement('textarea');
+            txt.innerHTML = res;
+            res = txt.value;
+        } else {
+            const map = {
+                '&nbsp;': ' ', '&quot;': '"', '&apos;': "'", '&amp;': '&',
+                '&lt;': '<', '&gt;': '>', '&ccedil;': 'ç', '&Ccedil;': 'Ç',
+                '&auml;': 'ä', '&Auml;': 'Ä', '&ouml;': 'ö', '&Ouml;': 'Ö',
+                '&uuml;': 'ü', '&Uuml;': 'Ü', '&eacute;': 'é', '&Eacute;': 'É',
+                '&egrave;': 'è', '&Egrave;': 'È', '&agrave;': 'à', '&Agrave;': 'À',
+                '&ntilde;': 'ñ', '&Ntilde;': 'Ñ', '&iacute;': 'í', '&Iacute;': 'Í',
+                '&oacute;': 'ó', '&Oacute;': 'Ó', '&uacute;': 'ú', '&Uacute;': 'Ú'
+            };
+            res = res.replace(/&[a-zA-Z0-9]+;/g, m => map[m] || m);
+        }
+    }
+
+    return res.replace(/^[\uFEFF\u200B]+/, '');
+};
+
+export const escapeHtml = (str) => {
+    if (str === null || str === undefined) return '';
+    return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+};
+
+export const parseTimestampToSeconds = (timeStr) => {
+    if (typeof timeStr === 'number') {
+        return isNaN(timeStr) ? 0 : timeStr;
+    }
+    if (!timeStr || typeof timeStr !== 'string') {
+        return 0;
+    }
+    const clean = timeStr.trim().replace(',', '.');
+    const parts = clean.split(':');
+    if (parts.length === 3) {
+        const hours = parseFloat(parts[0]);
+        const minutes = parseFloat(parts[1]);
+        const seconds = parseFloat(parts[2]);
+        if (isNaN(hours) || isNaN(minutes) || isNaN(seconds)) return 0;
+        return hours * 3600 + minutes * 60 + seconds;
+    } else if (parts.length === 2) {
+        const minutes = parseFloat(parts[0]);
+        const seconds = parseFloat(parts[1]);
+        if (isNaN(minutes) || isNaN(seconds)) return 0;
+        return minutes * 60 + seconds;
+    } else if (parts.length === 1) {
+        const sec = parseFloat(parts[0]);
+        return isNaN(sec) ? 0 : sec;
+    }
+    return 0;
+};
+
+export const parseVttToSegments = (vttText) => {
+    if (!vttText || typeof vttText !== 'string') return [];
+
+    const segments = [];
+    const normalized = vttText.replace(/^\uFEFF/, '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+    const blocks = normalized.split(/\n\s*\n/);
+    const timeRegex = /((?:\d{1,2}:)?\d{1,2}:\d{2}(?:[.,]\d{1,3})?)\s*-->\s*((?:\d{1,2}:)?\d{1,2}:\d{2}(?:[.,]\d{1,3})?)/;
+
+    for (const block of blocks) {
+        const lines = block.split('\n');
+        let timeIndex = -1;
+        let timeMatch = null;
+
+        for (let i = 0; i < lines.length; i++) {
+            const m = lines[i].match(timeRegex);
+            if (m) {
+                timeIndex = i;
+                timeMatch = m;
+                break;
+            }
+        }
+
+        if (timeIndex === -1 || !timeMatch) continue;
+
+        const start = parseTimestampToSeconds(timeMatch[1]);
+        const end = parseTimestampToSeconds(timeMatch[2]);
+        const rawContent = lines.slice(timeIndex + 1).join('\n').trim();
+        if (!rawContent) continue;
+
+        let speaker = null;
+        let textContent = rawContent;
+
+        const vMatch = rawContent.match(/<v\s+([^>]+)>([\s\S]*)/i);
+        if (vMatch) {
+            speaker = vMatch[1].trim();
+            textContent = vMatch[2];
+        }
+
+        textContent = textContent
+            .replace(/<\/v>/gi, ' ')
+            .replace(/<[^>]+>/g, ' ');
+
+        textContent = decodeHtmlEntities(textContent).replace(/^[⌈\uFEFF\u200B\s]+/, '').replace(/\s+/g, ' ').trim();
+        speaker = speaker ? decodeHtmlEntities(speaker).replace(/^[⌈\uFEFF\u200B\s]+/, '').replace(/\s+/g, ' ').trim() : null;
+
+        if (!textContent) continue;
+
+        segments.push({
+            start,
+            end,
+            text: textContent,
+            speaker: speaker || null
+        });
+    }
+
+    return segments;
+};
+
+export const parseSrtToSegments = (srtText) => {
+    if (!srtText || typeof srtText !== 'string') return [];
+
+    const segments = [];
+    const normalized = srtText.replace(/^\uFEFF/, '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+    const blocks = normalized.split(/\n\s*\n/);
+    const timeRegex = /((?:\d{1,2}:)?\d{1,2}:\d{2}(?:[.,]\d{1,3})?)\s*-->\s*((?:\d{1,2}:)?\d{1,2}:\d{2}(?:[.,]\d{1,3})?)/;
+
+    for (const block of blocks) {
+        const lines = block.split('\n');
+        let timeIndex = -1;
+        let timeMatch = null;
+
+        for (let i = 0; i < lines.length; i++) {
+            const m = lines[i].match(timeRegex);
+            if (m) {
+                timeIndex = i;
+                timeMatch = m;
+                break;
+            }
+        }
+
+        if (timeIndex === -1 || !timeMatch) continue;
+
+        const start = parseTimestampToSeconds(timeMatch[1]);
+        const end = parseTimestampToSeconds(timeMatch[2]);
+        let rawContent = lines.slice(timeIndex + 1).join(' ').trim();
+        if (!rawContent) continue;
+
+        rawContent = rawContent
+            .replace(/<[^>]+>/g, ' ');
+
+        rawContent = decodeHtmlEntities(rawContent).replace(/^[⌈\uFEFF\u200B\s]+/, '').replace(/\s+/g, ' ').trim();
+
+        if (!rawContent) continue;
+
+        let speaker = null;
+        let textContent = rawContent;
+
+        const bracketMatch = textContent.match(/^\[([^\]]+)\]\s*:?\s*(.*)$/s);
+        if (bracketMatch) {
+            speaker = bracketMatch[1].trim();
+            textContent = bracketMatch[2].trim();
+        } else {
+            const colonMatch = textContent.match(/^([A-Za-zА-Яа-яЁё0-9_\s.-]{1,35}):\s+(.*)$/s);
+            if (colonMatch) {
+                speaker = colonMatch[1].trim();
+                textContent = colonMatch[2].trim();
+            }
+        }
+
+        speaker = speaker ? decodeHtmlEntities(speaker).replace(/^[⌈\uFEFF\u200B\s]+/, '').trim() : null;
+        textContent = decodeHtmlEntities(textContent).replace(/^[⌈\uFEFF\u200B\s]+/, '').trim();
+
+        if (!textContent) continue;
+
+        segments.push({
+            start,
+            end,
+            text: textContent,
+            speaker: speaker || null
+        });
+    }
+
+    return segments;
+};
+
+export const normalizeJsonTranscript = (parsed) => {
+    if (!parsed) return [];
+
+    if (typeof parsed === 'object' && !Array.isArray(parsed)) {
+        if (parsed._yjs_state || parsed.comments) {
+            return parsed;
+        }
+
+        if (Array.isArray(parsed.segments)) {
+            const result = [];
+            for (const seg of parsed.segments) {
+                if (!seg) continue;
+                const segSpeaker = seg.speaker ? decodeHtmlEntities(String(seg.speaker)).replace(/^[⌈\uFEFF\u200B\s]+/, '').trim() : null;
+                if (Array.isArray(seg.words) && seg.words.length > 0) {
+                    for (const w of seg.words) {
+                        if (!w) continue;
+                        const rawWord = (w.word !== undefined ? w.word : w.text) || '';
+                        const wordText = decodeHtmlEntities(String(rawWord)).replace(/^[⌈\uFEFF\u200B\s]+/, '').trim();
+                        if (!wordText) continue;
+                        const wSpeaker = w.speaker ? decodeHtmlEntities(String(w.speaker)).replace(/^[⌈\uFEFF\u200B\s]+/, '').trim() : null;
+                        result.push({
+                            start: parseTimestampToSeconds(w.start),
+                            end: parseTimestampToSeconds(w.end !== undefined ? w.end : w.start),
+                            text: wordText,
+                            speaker: wSpeaker || segSpeaker
+                        });
+                    }
+                } else {
+                    const rawSegText = seg.text || '';
+                    const segText = decodeHtmlEntities(String(rawSegText)).replace(/^[⌈\uFEFF\u200B\s]+/, '').trim();
+                    if (segText) {
+                        result.push({
+                            start: parseTimestampToSeconds(seg.start),
+                            end: parseTimestampToSeconds(seg.end !== undefined ? seg.end : seg.start),
+                            text: segText,
+                            speaker: segSpeaker
+                        });
+                    }
+                }
+            }
+            return result;
+        }
+
+        if (Array.isArray(parsed.chunks)) {
+            const result = [];
+            for (const chunk of parsed.chunks) {
+                if (!chunk) continue;
+                let start = 0;
+                let end = 0;
+                if (Array.isArray(chunk.timestamp)) {
+                    start = chunk.timestamp[0];
+                    end = (chunk.timestamp[1] !== undefined && chunk.timestamp[1] !== null) ? chunk.timestamp[1] : start;
+                } else {
+                    start = chunk.start;
+                    end = (chunk.end !== undefined && chunk.end !== null) ? chunk.end : start;
+                }
+                const rawChunkText = chunk.text || '';
+                const text = decodeHtmlEntities(String(rawChunkText)).replace(/^[⌈\uFEFF\u200B\s]+/, '').trim();
+                const chunkSpeaker = chunk.speaker ? decodeHtmlEntities(String(chunk.speaker)).replace(/^[⌈\uFEFF\u200B\s]+/, '').trim() : null;
+                if (text) {
+                    result.push({
+                        start: parseTimestampToSeconds(start),
+                        end: parseTimestampToSeconds(end),
+                        text: text,
+                        speaker: chunkSpeaker
+                    });
+                }
+            }
+            return result;
+        }
+    }
+
+    if (Array.isArray(parsed)) {
+        const result = [];
+        for (const line of parsed) {
+            if (!line) continue;
+            const rawLineText = (line.text !== undefined ? line.text : line.word) || '';
+            const text = decodeHtmlEntities(String(rawLineText)).replace(/^[⌈\uFEFF\u200B\s]+/, '').trim();
+            const lineSpeaker = line.speaker ? decodeHtmlEntities(String(line.speaker)).replace(/^[⌈\uFEFF\u200B\s]+/, '').trim() : null;
+            if (typeof text === 'string' && text.length > 0) {
+                result.push({
+                    start: parseTimestampToSeconds(line.start),
+                    end: parseTimestampToSeconds(line.end !== undefined ? line.end : line.start),
+                    text: text,
+                    speaker: lineSpeaker
+                });
+            }
+        }
+        return result;
+    }
+
+    return parsed;
+};
+
+export const formatTranscriptToHtml = (segments, pauseThreshold = 1.0) => {
+    if (!Array.isArray(segments)) return '';
+
+    const validLines = segments
+        .filter(seg => seg && (typeof seg.text === 'string' || typeof seg.word === 'string'))
+        .map(seg => {
+            const rawText = (seg.text !== undefined ? seg.text : seg.word) || '';
+            const start = typeof seg.start === 'number' ? seg.start : parseTimestampToSeconds(seg.start);
+            const end = typeof seg.end === 'number' ? seg.end : parseTimestampToSeconds(seg.end !== undefined ? seg.end : seg.start);
+            const safeStart = !isNaN(start) ? start : 0;
+            const safeEnd = !isNaN(end) ? end : safeStart;
+            const unescapedText = decodeHtmlEntities(rawText).replace(/^[⌈\uFEFF\u200B\s]+/, '').replace(/[\r\n]+/g, ' ').replace(/\s+/g, ' ').trim();
+            const cleanText = escapeHtml(unescapedText);
+            const cleanSpeaker = seg.speaker ? decodeHtmlEntities(String(seg.speaker)).replace(/^[⌈\uFEFF\u200B\s]+/, '').trim() : null;
+            return {
+                start: safeStart,
+                end: safeEnd,
+                cleanText,
+                speaker: cleanSpeaker
+            };
+        })
+        .filter(item => item.cleanText.length > 0);
+
+    if (validLines.length === 0) return '';
+
+    validLines.sort((a, b) => a.start - b.start);
+
+    const paragraphs = [];
+    let currentParagraphSpans = [];
+    let currentParagraphSpeaker = null;
+    let prevEnd = null;
+    let prevSpeaker = null;
+
+    const flushParagraph = () => {
+        if (currentParagraphSpans.length > 0) {
+            const speakerPrefix = currentParagraphSpeaker
+                ? `<strong>${escapeHtml(currentParagraphSpeaker)}:</strong> `
+                : '';
+            paragraphs.push(`<p>${speakerPrefix}${currentParagraphSpans.join(' ')}</p>`);
+            currentParagraphSpans = [];
+            currentParagraphSpeaker = null;
+        }
+    };
+
+    for (let i = 0; i < validLines.length; i++) {
+        const item = validLines[i];
+        const { start: safeStart, end: safeEnd, cleanText, speaker } = item;
+
+        if (prevEnd === null) {
+            currentParagraphSpeaker = speaker;
+            currentParagraphSpans.push(`<span data-start="${safeStart}" data-end="${safeEnd}">${cleanText}</span>`);
+            prevEnd = safeEnd;
+            prevSpeaker = speaker;
+            continue;
+        }
+
+        const isOverlap = safeStart < (prevEnd - 0.15);
+
+        if (isOverlap) {
+            if (speaker !== prevSpeaker) {
+                flushParagraph();
+                currentParagraphSpeaker = speaker;
+                currentParagraphSpans.push(`<span data-start="${safeStart}" data-end="${safeEnd}">${cleanText}</span>`);
+            } else {
+                currentParagraphSpans.push(`<span data-start="${safeStart}" data-end="${safeEnd}">${cleanText}</span>`);
+            }
+        } else {
+            const isSpeakerChanged = Boolean(speaker && speaker !== prevSpeaker);
+            const isPause = (safeStart - prevEnd) > pauseThreshold;
+
+            if (isSpeakerChanged || isPause) {
+                flushParagraph();
+                currentParagraphSpeaker = speaker;
+                currentParagraphSpans.push(`<span data-start="${safeStart}" data-end="${safeEnd}">${cleanText}</span>`);
+            } else {
+                currentParagraphSpans.push(`<span data-start="${safeStart}" data-end="${safeEnd}">${cleanText}</span>`);
+            }
+        }
+
+        prevEnd = Math.max(prevEnd, safeEnd);
+        prevSpeaker = speaker;
+    }
+
+    flushParagraph();
+
+    return paragraphs.join('');
+};
+
 createApp({
     setup() {
         const locale = ref('ru');
@@ -305,15 +693,28 @@ createApp({
                 const reader = new FileReader();
                 reader.onload = (e) => {
                     try {
-                        const parsed = JSON.parse(e.target.result);
+                        const rawContent = (e.target.result || '').replace(/^\uFEFF/, '');
+                        const nameLower = file.name.toLowerCase();
+                        let result;
+
+                        if (nameLower.endsWith('.vtt')) {
+                            result = parseVttToSegments(rawContent);
+                        } else if (nameLower.endsWith('.srt')) {
+                            result = parseSrtToSegments(rawContent);
+                        } else {
+                            const parsed = JSON.parse(rawContent);
+                            result = normalizeJsonTranscript(parsed);
+                        }
+
                         jsonFileName.value = file.name;
                         if (isSessionStarted.value && ydoc) {
-                            loadInitialTranscript(parsed);
+                            loadInitialTranscript(result);
                         } else {
-                            localJsonBuffer.value = parsed;
+                            localJsonBuffer.value = result;
                         }
                     } catch (err) {
-                        alert("Error reading JSON file.");
+                        console.error("Error reading transcript file:", err);
+                        alert("Error reading transcript file.");
                     }
                 };
                 reader.readAsText(file);
@@ -323,10 +724,13 @@ createApp({
         const handleJsonDrop = (event) => {
             isDraggingJson.value = false;
             const file = event.dataTransfer.files[0];
-            if (file && file.name.endsWith('.json')) {
-                processJsonFile(file);
-            } else if (file) {
-                alert("Please drop a .json format file.");
+            if (file) {
+                const nameLower = file.name.toLowerCase();
+                if (nameLower.endsWith('.json') || nameLower.endsWith('.vtt') || nameLower.endsWith('.srt')) {
+                    processJsonFile(file);
+                } else {
+                    alert("Please drop a .json, .vtt, or .srt format file.");
+                }
             }
         };
 
@@ -588,51 +992,6 @@ createApp({
             });
         };
 
-        const escapeHtml = (str) => {
-            return str
-                .replace(/&/g, '&amp;')
-                .replace(/</g, '&lt;')
-                .replace(/>/g, '&gt;')
-                .replace(/"/g, '&quot;')
-                .replace(/'/g, '&#039;');
-        };
-
-        const formatTranscriptToHtml = (jsonBuffer, pauseThreshold = 1.0) => {
-            if (!Array.isArray(jsonBuffer)) return '';
-            const validLines = jsonBuffer.filter(line => line && typeof line.text === 'string' && line.text.trim().length > 0);
-            if (validLines.length === 0) return '';
-
-            const paragraphs = [];
-            let currentParagraphSpans = [];
-            let prevEnd = null;
-
-            for (const line of validLines) {
-                const start = parseFloat(line.start);
-                const end = parseFloat(line.end);
-                const safeStart = !isNaN(start) ? start : 0;
-                const safeEnd = !isNaN(end) ? end : safeStart;
-                const cleanText = escapeHtml(line.text.replace(/[\r\n]+/g, ' ').replace(/\s+/g, ' ').trim());
-                if (!cleanText) continue;
-
-                // Если пауза между концом предыдущего сегмента и началом текущего больше 1 секунды - создаем новый абзац
-                if (prevEnd !== null && (safeStart - prevEnd) > pauseThreshold) {
-                    if (currentParagraphSpans.length > 0) {
-                        paragraphs.push(currentParagraphSpans.join(' '));
-                        currentParagraphSpans = [];
-                    }
-                }
-
-                currentParagraphSpans.push(`<span data-start="${safeStart}" data-end="${safeEnd}">${cleanText}</span>`);
-                prevEnd = safeEnd;
-            }
-
-            if (currentParagraphSpans.length > 0) {
-                paragraphs.push(currentParagraphSpans.join(' '));
-            }
-
-            return paragraphs.map(p => `<p>${p}</p>`).join('');
-        };
-
         const mergeCommentsData = (yCommentsMap, incomingCommentsArray) => {
             if (!yCommentsMap || !Array.isArray(incomingCommentsArray)) return;
 
@@ -707,6 +1066,12 @@ createApp({
                     mergeCommentsData(yComments, jsonBuffer.comments);
                     if (jsonBuffer.content) {
                         editor.commands.setContent(jsonBuffer.content);
+                    }
+                } else {
+                    const normalized = normalizeJsonTranscript(jsonBuffer);
+                    if (Array.isArray(normalized)) {
+                        const htmlContent = formatTranscriptToHtml(normalized, 1.0);
+                        editor.commands.setContent(htmlContent);
                     }
                 }
             } else if (Array.isArray(jsonBuffer)) {
