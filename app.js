@@ -9,6 +9,7 @@ import StarterKit from 'https://esm.sh/@tiptap/starter-kit@2.2.4';
 import Collaboration from 'https://esm.sh/@tiptap/extension-collaboration@2.2.4?deps=yjs@13.6.18';
 import CollaborationCursor from 'https://esm.sh/@tiptap/extension-collaboration-cursor@2.2.4?deps=yjs@13.6.18';
 import TextAlign from 'https://esm.sh/@tiptap/extension-text-align@2.2.4';
+import { IndexeddbPersistence } from 'https://esm.sh/y-indexeddb@9.0.12?deps=yjs@13.6.18';
 
 export const decodeHtmlEntities = (str) => {
     if (!str || typeof str !== 'string') return '';
@@ -501,6 +502,7 @@ createApp({
 
         let ydoc = null;
         let provider = null;
+        let idbProvider = null;
         const connectedPeers = ref(1);
         const peersList = ref([]);
         const showPeersList = ref(false);
@@ -1091,69 +1093,112 @@ createApp({
             connectionErrorMsg.value = '';
 
             try {
+                if (sessionMode.value !== 'local') {
+                    isConnectingP2P.value = true;
+                    await checkServerConnection(activeSignalingServer.value);
+                }
+
+                if (idbProvider) {
+                    try { idbProvider.destroy(); } catch (e) {}
+                    idbProvider = null;
+                }
+                if (provider) {
+                    try { provider.destroy(); } catch (e) {}
+                    provider = null;
+                }
+                if (ydoc) {
+                    try { ydoc.destroy(); } catch (e) {}
+                    ydoc = null;
+                }
+
                 const yjsModule = await import('https://esm.sh/yjs@13.6.18');
                 const Y = yjsModule.default || yjsModule;
                 ydoc = new Y.Doc();
-                yComments = ydoc.getMap('emca-comments');
-                yMeta = ydoc.getMap('emca-meta');
-                yProposals = ydoc.getMap('emca-proposals');
 
-                baselineSnapshot.value = null;
-                activeProposal.value = null;
+                const dbKey = 'emca-session-' + (sessionMode.value === 'local' ? audioFileName.value : roomName.value);
+                idbProvider = new IndexeddbPersistence(dbKey, ydoc);
 
-                yComments.observeDeep(() => {
-                    updateCommentsFromYjs();
-                });
-                updateCommentsFromYjs();
+                let awareness = null;
+                if (sessionMode.value !== 'local') {
+                    const awarenessModule = await import('https://esm.sh/y-protocols@1.0.6/awareness?deps=yjs@13.6.18');
+                    awareness = new awarenessModule.Awareness(ydoc);
+                    provider = { awareness };
+                }
 
-                yProposals.observe(() => {
-                    const act = yProposals.get('active');
-                    activeProposal.value = act || null;
-                    if (!act && baselineSnapshot.value) {
+                let isSyncedHandled = false;
+                const handleSynced = async () => {
+                    if (isSyncedHandled) return;
+                    isSyncedHandled = true;
+
+                    try {
+                        // 1. Инициализируем карты yComments, yMeta, yProposals (с их observe)
+                        yComments = ydoc.getMap('emca-comments');
+                        yMeta = ydoc.getMap('emca-meta');
+                        yProposals = ydoc.getMap('emca-proposals');
+
                         baselineSnapshot.value = null;
-                    }
-                });
-                activeProposal.value = yProposals.get('active') || null;
+                        activeProposal.value = null;
 
-                if (sessionMode.value === 'local') {
-                    isSessionStarted.value = true;
-                    nextTick(() => { 
-                        initPlayer(); 
+                        yComments.observeDeep(() => {
+                            updateCommentsFromYjs();
+                        });
+                        updateCommentsFromYjs();
+
+                        yProposals.observe(() => {
+                            const act = yProposals.get('active');
+                            activeProposal.value = act || null;
+                            if (!act && baselineSnapshot.value) {
+                                baselineSnapshot.value = null;
+                            }
+                        });
+                        activeProposal.value = yProposals.get('active') || null;
+
+                        // 2. Вызываем initPlayer() и initRichTextEditor()
+                        isSessionStarted.value = true;
+                        await nextTick();
+                        initPlayer();
                         initRichTextEditor();
+
+                        // 3. Если есть localJsonBuffer - вызываем loadInitialTranscript(localJsonBuffer.value) и очищаем буфер
                         if (localJsonBuffer.value) {
-                            loadInitialTranscript(localJsonBuffer.value);
+                            const hasExistingData = ydoc.getXmlFragment('emca-transcript').length > 0;
+                            if (!hasExistingData) {
+                                await loadInitialTranscript(localJsonBuffer.value);
+                            }
                             localJsonBuffer.value = null;
                         }
-                    });
-                } else {
-                    isConnectingP2P.value = true;
-                    await checkServerConnection(activeSignalingServer.value);
-                    const webrtcModule = await import('https://esm.sh/y-webrtc@10.3.0?deps=yjs@13.6.18');
-                    const WebrtcProvider = webrtcModule.WebrtcProvider;
 
-                    const providerOpts = { 
-                        signaling: [activeSignalingServer.value],
-                        peerOpts: { config: { iceServers: [ { urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun.cloudflare.com:3478' } ] } }
-                    };
-                    if (roomPassword.value.trim() !== '') providerOpts.password = roomPassword.value.trim();
+                        // 4. Если sessionMode !== 'local', только теперь подключаем WebrtcProvider!
+                        if (sessionMode.value !== 'local') {
+                            const webrtcModule = await import('https://esm.sh/y-webrtc@10.3.0?deps=yjs@13.6.18');
+                            const WebrtcProvider = webrtcModule.WebrtcProvider;
 
-                    provider = new WebrtcProvider('emca-p2p-' + roomName.value.trim(), ydoc, providerOpts);
-                    provider.awareness.setLocalStateField('user', { name: userName.value.trim() || 'User ' + Math.floor(Math.random() * 1000) });
-                    provider.awareness.on('change', updatePeersList);
-                    updatePeersList();
+                            const providerOpts = { 
+                                signaling: [activeSignalingServer.value],
+                                peerOpts: { config: { iceServers: [ { urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun.cloudflare.com:3478' } ] } },
+                                awareness: awareness
+                            };
+                            if (roomPassword.value.trim() !== '') providerOpts.password = roomPassword.value.trim();
 
-                    isConnectingP2P.value = false;
-                    connectionState.value = 'waiting';
-                    isSessionStarted.value = true;
-                    
-                    nextTick(() => { 
-                        initPlayer(); 
-                        initRichTextEditor();
-                        if (sessionMode.value === 'host' && localJsonBuffer.value) {
-                            loadInitialTranscript(localJsonBuffer.value);
-                            localJsonBuffer.value = null; 
+                            const webrtc = new WebrtcProvider('emca-p2p-' + roomName.value.trim(), ydoc, providerOpts);
+                            webrtc.awareness.setLocalStateField('user', { name: userName.value.trim() || 'User ' + Math.floor(Math.random() * 1000) });
+                            webrtc.awareness.on('change', updatePeersList);
+                            provider = webrtc;
+                            updatePeersList();
+
+                            isConnectingP2P.value = false;
+                            connectionState.value = 'waiting';
                         }
-                    });
+                    } catch (err) {
+                        isConnectingP2P.value = false;
+                        connectionErrorMsg.value = err.message;
+                        console.error('Session initialization error:', err);
+                    }
+                };
+
+                idbProvider.on('synced', handleSynced);
+                if (idbProvider.synced) {
+                    handleSynced();
                 }
             } catch (e) {
                 isConnectingP2P.value = false;
@@ -1629,6 +1674,7 @@ createApp({
             if (editor) editor.destroy();
             if (ws) ws.destroy(); 
             if (provider) provider.destroy();
+            if (idbProvider) idbProvider.destroy();
             if (ydoc) ydoc.destroy();
             if (audioUrl.value) URL.revokeObjectURL(audioUrl.value);
         });
