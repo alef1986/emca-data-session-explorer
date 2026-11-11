@@ -10,6 +10,7 @@ import Collaboration from 'https://esm.sh/@tiptap/extension-collaboration@2.2.4?
 import CollaborationCursor from 'https://esm.sh/@tiptap/extension-collaboration-cursor@2.2.4?deps=yjs@13.6.18';
 import TextAlign from 'https://esm.sh/@tiptap/extension-text-align@2.2.4';
 import { IndexeddbPersistence } from 'https://esm.sh/y-indexeddb@9.0.12?deps=yjs@13.6.18';
+import { Document, Packer, Paragraph, TextRun, CommentReference, CommentRangeStart, CommentRangeEnd } from 'https://esm.sh/docx@8.5.0';
 
 export const decodeHtmlEntities = (str) => {
     if (!str || typeof str !== 'string') return '';
@@ -1429,6 +1430,174 @@ createApp({
             }
         };
 
+        const buildDocxComments = (comments) => {
+            const commentIdMap = new Map();
+            let nextId = 1;
+            const docxComments = [];
+
+            for (const c of (comments || [])) {
+                if (!c || !c.id) continue;
+                const numId = nextId++;
+                commentIdMap.set(c.id, numId);
+
+                const children = [];
+                if (c.text) children.push(new Paragraph({ text: c.text }));
+                if (Array.isArray(c.replies)) {
+                    for (const reply of c.replies) {
+                        if (!reply) continue;
+                        children.push(new Paragraph({ text: `[${reply.author || 'User'}]: ${reply.text || ''}` }));
+                    }
+                }
+                if (children.length === 0) children.push(new Paragraph({ text: '' }));
+
+                let parsedDate = undefined;
+                if (c.createdAt) {
+                    const d = new Date(c.createdAt);
+                    if (!isNaN(d.getTime())) parsedDate = d;
+                }
+
+                docxComments.push({
+                    id: numId,
+                    author: c.author || 'User',
+                    date: parsedDate,
+                    children
+                });
+            }
+            return { commentIdMap, docxComments, getNextId: () => nextId++ };
+        };
+
+        const makeDocxTextRun = (inlineNode) => {
+            const runOptions = { text: inlineNode.text || '' };
+            if (inlineNode.marks && inlineNode.marks.length > 0) {
+                const colorMark = inlineNode.marks.find(m => m.type === 'textColor');
+                if (colorMark?.attrs?.color) {
+                    runOptions.color = colorMark.attrs.color.replace('#', '');
+                }
+                const tcMark = inlineNode.marks.find(m => m.type === 'timecode');
+                if (tcMark) {
+                    runOptions.shading = { fill: 'F3F4F6' };
+                }
+                if (inlineNode.marks.some(m => m.type === 'bold')) runOptions.bold = true;
+                if (inlineNode.marks.some(m => m.type === 'italic')) runOptions.italics = true;
+                if (inlineNode.marks.some(m => m.type === 'strike')) runOptions.strike = true;
+            }
+            return new TextRun(runOptions);
+        };
+
+        const exportWord = async () => {
+            if (!editor) return;
+            try {
+                const editorData = editor.getJSON();
+                const { commentIdMap, docxComments, getNextId } = buildDocxComments(commentsList.value);
+
+                const docxParagraphs = [];
+                const contentNodes = editorData?.content || [];
+                const referencedCommentIds = new Set();
+
+                for (const node of contentNodes) {
+                    const paragraphChildren = [];
+                    const inlineNodes = node.content || [];
+
+                    for (let i = 0; i < inlineNodes.length; i++) {
+                        const child = inlineNodes[i];
+                        if (child.type !== 'text') {
+                            if (child.type === 'hardBreak') {
+                                paragraphChildren.push(new TextRun({ break: 1 }));
+                            }
+                            continue;
+                        }
+
+                        const commentMark = child.marks?.find(m => m.type === 'comment');
+                        const commentId = commentMark?.attrs?.commentId;
+
+                        let numericId = null;
+                        if (commentId) {
+                            if (!commentIdMap.has(commentId)) {
+                                const newNumId = getNextId();
+                                commentIdMap.set(commentId, newNumId);
+                                docxComments.push({
+                                    id: newNumId,
+                                    author: 'User',
+                                    date: new Date(),
+                                    children: [new Paragraph({ text: '' })]
+                                });
+                            }
+                            numericId = commentIdMap.get(commentId);
+                        }
+
+                        if (numericId !== null && numericId !== undefined) {
+                            if (referencedCommentIds.has(numericId)) {
+                                const orig = docxComments.find(c => c.id === numericId);
+                                const freshNumId = getNextId();
+                                docxComments.push({
+                                    id: freshNumId,
+                                    author: orig?.author || 'User',
+                                    date: orig?.date,
+                                    children: orig?.children || [new Paragraph({ text: '' })]
+                                });
+                                numericId = freshNumId;
+                            }
+                            referencedCommentIds.add(numericId);
+
+                            paragraphChildren.push(new CommentRangeStart(numericId));
+                            paragraphChildren.push(makeDocxTextRun(child));
+
+                            while (i + 1 < inlineNodes.length) {
+                                const nextChild = inlineNodes[i + 1];
+                                if (nextChild.type !== 'text') break;
+                                const nextCommentMark = nextChild.marks?.find(m => m.type === 'comment');
+                                const nextCommentId = nextCommentMark?.attrs?.commentId;
+                                if (nextCommentId !== commentId) break;
+
+                                i++;
+                                paragraphChildren.push(makeDocxTextRun(nextChild));
+                            }
+
+                            paragraphChildren.push(new CommentRangeEnd(numericId));
+                            paragraphChildren.push(new CommentReference(numericId));
+                        } else {
+                            paragraphChildren.push(makeDocxTextRun(child));
+                        }
+                    }
+
+                    const paragraphOptions = { children: paragraphChildren };
+                    if (node.attrs?.textAlign) {
+                        paragraphOptions.alignment = node.attrs.textAlign === 'justify' ? 'both' : node.attrs.textAlign;
+                    }
+                    if (node.type === 'heading') {
+                        const level = node.attrs?.level || 1;
+                        paragraphOptions.heading = `Heading${level}`;
+                    }
+
+                    docxParagraphs.push(new Paragraph(paragraphOptions));
+                }
+
+                if (docxParagraphs.length === 0) {
+                    docxParagraphs.push(new Paragraph({ text: '' }));
+                }
+
+                const docOptions = {
+                    sections: [{ children: docxParagraphs }]
+                };
+                if (docxComments.length > 0) {
+                    docOptions.comments = { children: docxComments };
+                }
+
+                const doc = new Document(docOptions);
+                const blob = await Packer.toBlob(doc);
+
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                const baseName = (audioFileName.value || 'session').replace(/\.[^/.]+$/, '');
+                a.href = url;
+                a.download = `${baseName}_transcript.docx`;
+                a.click();
+                URL.revokeObjectURL(url);
+            } catch (err) {
+                console.error('Word export error:', err);
+            }
+        };
+
         const handleProposalFileChange = (event) => {
             const file = event.target?.files?.[0];
             if (!file) return;
@@ -1776,7 +1945,7 @@ createApp({
             isTextSelected, showHighlightPicker, toggleHighlightPicker, highlightColors, clearHighlight,
             commentsList, activeCommentId, selectComment, jumpToCommentInEditor, startEditComment, saveCommentEdit,
             cancelCommentEdit, deleteComment, editingCommentId, editingCommentText, replyInputText, addReply, deleteReply,
-            addCommentAtSelection, formatCommentTime, exportJson,
+            addCommentAtSelection, formatCommentTime, exportJson, exportWord,
             activeProposal, baselineSnapshot, isCommentNew, isReplyNew, proposalFileInput, handleProposalFileChange,
             previewProposal, acceptProposal, rejectProposal
         };
