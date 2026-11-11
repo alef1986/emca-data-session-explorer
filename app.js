@@ -8,7 +8,6 @@ import { Editor, Mark, mergeAttributes } from 'https://esm.sh/@tiptap/core@2.2.4
 import StarterKit from 'https://esm.sh/@tiptap/starter-kit@2.2.4';
 import Collaboration from 'https://esm.sh/@tiptap/extension-collaboration@2.2.4?deps=yjs@13.6.18';
 import CollaborationCursor from 'https://esm.sh/@tiptap/extension-collaboration-cursor@2.2.4?deps=yjs@13.6.18';
-import Highlight from 'https://esm.sh/@tiptap/extension-highlight@2.2.4';
 import TextAlign from 'https://esm.sh/@tiptap/extension-text-align@2.2.4';
 
 createApp({
@@ -42,6 +41,34 @@ createApp({
         
         const roomName = ref('');
         const roomPassword = ref('');
+        const showRoomPassword = ref(false);
+        const isRoomCopied = ref(false);
+
+        const copyRoomDetails = async () => {
+            try {
+                const pass = roomPassword.value ? roomPassword.value.trim() : '';
+                const text = pass 
+                    ? `${t.value('room_label')}: ${roomName.value}\n${t.value('password_label')}: ${pass}`
+                    : `${t.value('room_label')}: ${roomName.value}`;
+
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    await navigator.clipboard.writeText(text);
+                } else {
+                    const textarea = document.createElement('textarea');
+                    textarea.value = text;
+                    textarea.style.position = 'fixed';
+                    textarea.style.opacity = '0';
+                    document.body.appendChild(textarea);
+                    textarea.select();
+                    document.execCommand('copy');
+                    document.body.removeChild(textarea);
+                }
+                isRoomCopied.value = true;
+                setTimeout(() => { isRoomCopied.value = false; }, 2000);
+            } catch (err) {
+                console.error('Failed to copy room details:', err);
+            }
+        };
         
         const serverPreset = ref('public');
         const customServerUrl = ref('wss://');
@@ -54,13 +81,13 @@ createApp({
         const isTextSelected = ref(false);
         const showHighlightPicker = ref(false);
         const highlightColors = [
-            { name: 'yellow', hex: '#fef08a' },
-            { name: 'green', hex: '#86efac' },
-            { name: 'blue', hex: '#93c5fd' },
-            { name: 'purple', hex: '#d8b4fe' },
-            { name: 'pink', hex: '#f472b6' },
-            { name: 'orange', hex: '#fdba74' },
-            { name: 'teal', hex: '#5eead4' }
+            { name: 'red', hex: '#dc2626' },
+            { name: 'green', hex: '#16a34a' },
+            { name: 'blue', hex: '#2563eb' },
+            { name: 'purple', hex: '#9333ea' },
+            { name: 'pink', hex: '#db2777' },
+            { name: 'orange', hex: '#ea580c' },
+            { name: 'teal', hex: '#0d9488' }
         ];
         const activeCommentId = ref(null);
         const editingCommentId = ref(null);
@@ -423,6 +450,28 @@ createApp({
             }
         });
 
+        const TextColorMark = Mark.create({
+            name: 'textColor',
+            inclusive: false,
+            addAttributes() {
+                return {
+                    color: {
+                        default: null,
+                        parseHTML: element => element.getAttribute('data-text-color') || element.style.color,
+                        renderHTML: attributes => {
+                            if (!attributes.color) return {};
+                            return {
+                                'data-text-color': attributes.color,
+                                style: `color: ${attributes.color}; font-weight: 500;`
+                            };
+                        }
+                    }
+                };
+            },
+            parseHTML() { return [{ tag: 'span[data-text-color]' }]; },
+            renderHTML({ HTMLAttributes }) { return ['span', mergeAttributes(HTMLAttributes), 0]; }
+        });
+
         const uint8ArrayToBase64 = (bytes) => {
             let binary = '';
             const len = bytes.byteLength;
@@ -464,7 +513,7 @@ createApp({
                 }),
                 TimecodeMark,
                 CommentMark,
-                Highlight.configure({ multicolor: true }),
+                TextColorMark,
                 TextAlign.configure({
                     types: ['heading', 'paragraph'],
                     alignments: ['left', 'justify'],
@@ -754,12 +803,12 @@ createApp({
         };
 
         const applyHighlight = (colorHex) => {
-            if (editor) editor.chain().focus().toggleHighlight({ color: colorHex }).run();
+            if (editor) editor.chain().focus().setMark('textColor', { color: colorHex }).run();
             showHighlightPicker.value = false;
         };
 
         const clearHighlight = () => {
-            if (editor) editor.chain().focus().unsetHighlight().run();
+            if (editor) editor.chain().focus().unsetMark('textColor').run();
             showHighlightPicker.value = false;
         };
 
@@ -979,19 +1028,17 @@ createApp({
                 try {
                     const parsed = JSON.parse(e.target.result);
                     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed) || !parsed._yjs_state) {
-                        alert(t('error_v2_required'));
+                        alert(t.value('error_v2_required'));
                         event.target.value = '';
                         return;
                     }
 
                     const currentTranscriptId = yMeta ? yMeta.get('transcriptId') : null;
                     const fileTranscriptId = parsed.transcriptId;
-                    if (currentTranscriptId && fileTranscriptId && currentTranscriptId !== fileTranscriptId) {
-                        const confirmed = window.confirm(t('confirm_different_session'));
-                        if (!confirmed) {
-                            event.target.value = '';
-                            return;
-                        }
+                    if (!currentTranscriptId || !fileTranscriptId || currentTranscriptId !== fileTranscriptId) {
+                        alert(t.value('error_different_baseline'));
+                        event.target.value = '';
+                        return;
                     }
 
                     const proposal = {
@@ -1006,10 +1053,11 @@ createApp({
 
                     if (yProposals) {
                         yProposals.set('active', proposal);
+                        alert(t.value('proposal_sent_notice'));
                     }
                 } catch (err) {
                     console.error('Failed to parse proposal json:', err);
-                    alert(t('error_v2_required'));
+                    alert(t.value('error_v2_required'));
                 } finally {
                     event.target.value = '';
                 }
@@ -1305,6 +1353,7 @@ createApp({
         return {
             locale, t, toggleLocale, sessionMode, setMode, isSessionStarted, isConnectingP2P, connectionState, syncError,
             connectionErrorMsg, highlightErrors, audioUrl, audioFileName, jsonFileName, userName, roomName, roomPassword,
+            showRoomPassword, isRoomCopied, copyRoomDetails,
             serverPreset, customServerUrl, isReadyToStart, isDraggingAudio, isDraggingJson, handleStartAudio, handleStartJson,
             handleAudioDrop, handleJsonDrop, startSession, connectedPeers, peersList, showPeersList, togglePeersList,
             currentTime, isPlaying, isAudioReady, zoomLevel, zoomIn, zoomOut, freqMinInput, freqMaxInput, freqLabels,

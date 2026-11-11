@@ -236,6 +236,37 @@
                             </div>
                         </div>
 
+                        <!-- ИНФОРМАЦИОННЫЙ БЛОК: КОМНАТА И ПАРОЛЬ -->
+                        <div v-if="sessionMode !== 'local'" class="flex items-center gap-1.5 text-xs">
+                            <div class="flex items-center gap-1 px-2.5 py-1 rounded-full bg-blue-50 text-blue-800 border border-blue-200 font-medium shadow-xs" :title="roomName">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5 text-blue-600 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" /></svg>
+                                <span class="text-blue-600 font-semibold">{{ t('room_label') }}:</span>
+                                <span class="font-mono max-w-[120px] truncate">{{ roomName }}</span>
+                            </div>
+                            <template v-if="sessionMode === 'host'">
+                                <div v-if="roomPassword && roomPassword.trim()" class="flex items-center gap-1 px-2.5 py-1 rounded-full bg-amber-50 text-amber-900 border border-amber-200 font-medium shadow-xs">
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5 text-amber-600 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
+                                    <span class="text-amber-700 font-semibold">{{ t('password_label') }}:</span>
+                                    <span class="font-mono tracking-wider">{{ showRoomPassword ? roomPassword.trim() : '••••' }}</span>
+                                    <button @click.stop="showRoomPassword = !showRoomPassword" class="p-0.5 rounded text-amber-700 hover:text-amber-900 hover:bg-amber-100 transition-colors focus:outline-none ml-0.5" :title="showRoomPassword ? t('hide_password') : t('show_password')">
+                                        <svg v-if="showRoomPassword" xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l18 18" /></svg>
+                                        <svg v-else xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
+                                    </button>
+                                    <button @click.stop="copyRoomDetails" class="p-0.5 rounded text-amber-700 hover:text-amber-900 hover:bg-amber-100 transition-colors focus:outline-none" :title="isRoomCopied ? t('room_details_copied') : t('copy_room_details')">
+                                        <svg v-if="!isRoomCopied" xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
+                                        <svg v-else xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" /></svg>
+                                    </button>
+                                </div>
+                                <div v-else class="flex items-center gap-1 px-2.5 py-1 rounded-full bg-gray-100 text-gray-500 border border-gray-200 font-medium shadow-xs">
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5 text-gray-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8 11V7a4 4 0 118 0m-4 8v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2z" /></svg>
+                                    <span>{{ t('no_password') }}</span>
+                                    <button @click.stop="copyRoomDetails" class="p-0.5 rounded text-gray-500 hover:text-gray-700 hover:bg-gray-200 transition-colors focus:outline-none ml-0.5" :title="isRoomCopied ? t('room_details_copied') : t('copy_room_details')">
+                                        <svg v-if="!isRoomCopied" xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
+                                        <svg v-else xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" /></svg>
+                                    </button>
+                                </div>
+                            </template>
+                        </div>
                         <span class="text-xs font-normal font-mono bg-gray-100 text-gray-600 px-2 py-1 rounded max-w-[150px] truncate" :title="audioFileName">{{ audioFileName }}</span>
 
                         <!-- ВЕДОМЫЙ: КНОПКА ПРЕДЛОЖИТЬ ПРАВКИ И ПЛАШКА СТАТУСА -->
@@ -486,7 +517,7 @@
                                 <div 
                                     v-if="showHighlightPicker" 
                                     @click.stop 
-                                    class="absolute top-full left-0 mt-2 p-2 bg-white rounded-xl shadow-xl border border-gray-200 flex items-center gap-1.5 z-50 animate-in fade-in zoom-in-95 duration-100"
+                                    class="absolute top-full right-0 mt-2 p-2 bg-white rounded-xl shadow-xl border border-gray-200 flex items-center gap-1.5 z-50 animate-in fade-in zoom-in-95 duration-100"
                                 >
                                     <button 
                                         v-for="color in highlightColors" 
@@ -501,10 +532,10 @@
                                     <button 
                                         @mousedown.prevent 
                                         @click="clearHighlight" 
-                                        class="w-6 h-6 rounded-full border border-gray-300 hover:border-red-400 bg-white hover:bg-red-50 text-gray-400 hover:text-red-500 flex items-center justify-center transition-colors focus:outline-none"
+                                        class="w-6 h-6 rounded-full border border-red-300 hover:border-red-500 bg-red-50 hover:bg-red-100 text-red-500 hover:text-red-600 flex items-center justify-center transition-all focus:outline-none hover:scale-110 shadow-xs"
                                         :title="t('clear_highlight')"
                                     >
-                                        <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                        <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
                                             <path stroke-linecap="round" stroke-linejoin="round" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
                                         </svg>
                                     </button>
