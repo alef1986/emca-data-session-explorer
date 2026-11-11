@@ -36,3 +36,8 @@
         box-shadow: none;
     }
 }
+
+.disable-timecode-cursor .timecode-segment,
+.disable-timecode-Running-cursor .timecode-segment {
+    cursor: text !important;
+}

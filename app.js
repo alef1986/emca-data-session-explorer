@@ -42,14 +42,6 @@ createApp({
         const isDraggingJson = ref(false);
         const localJsonBuffer = ref(null); 
 
-        // Заглушки для сохранения работоспособности старых элементов UI (до их рефакторинга)
-        const bookmarkedLines = computed(() => []);
-        const searchQuery = ref('');
-        const searchResults = ref([]);
-        const currentSearchIndex = ref(0);
-        const hasSearched = ref(false);
-        const activeLineId = ref(null);
-
         // Подсветка текста и комментарии
         const isTextSelected = ref(false);
         const showHighlightPicker = ref(false);
@@ -91,6 +83,8 @@ createApp({
         const autoScroll = ref(true);
         const currentAlignment = ref('left');
         const highlightActiveSegment = ref(localStorage.getItem('emca_highlight_segment') === 'true');
+        const seekOnClick = ref(localStorage.getItem('emca_seek_on_click') !== 'false');
+        watch(seekOnClick, (val) => localStorage.setItem('emca_seek_on_click', val));
         
         let ws = null;
         let activeSpectrogramPlugin = null;
@@ -356,6 +350,7 @@ createApp({
 
         const TimecodeMark = Mark.create({
             name: 'timecode',
+            inclusive: false,
             addAttributes() {
                 return {
                     start: {
@@ -380,6 +375,7 @@ createApp({
 
         const CommentMark = Mark.create({
             name: 'comment',
+            inclusive: false,
             excludes: '',
             addAttributes() {
                 return {
@@ -455,11 +451,16 @@ createApp({
             ];
 
             if (sessionMode.value !== 'local' && provider) {
+                const coloredSwatches = colorSwatches.filter(s => s.hex && s.key);
+                const randomColor = coloredSwatches.length > 0
+                    ? coloredSwatches[Math.floor(Math.random() * coloredSwatches.length)].hex
+                    : (colorSwatches[0]?.hex || '#0ea5e9');
+
                 extensions.push(CollaborationCursor.configure({
                     provider: provider,
                     user: {
                         name: userName.value,
-                        color: colorSwatches[Math.floor(Math.random() * colorSwatches.length)].barClass.replace('bg-', '')
+                        color: randomColor
                     }
                 }));
             }
@@ -500,7 +501,9 @@ createApp({
                 const timecodeSpan = e.target.closest('[data-start]');
                 if (timecodeSpan) {
                     const startTime = parseFloat(timecodeSpan.getAttribute('data-start'));
-                    if (!isNaN(startTime)) jumpTo(startTime);
+                    if (!isNaN(startTime) && seekOnClick.value && editor.state.selection.empty) {
+                        jumpTo(startTime);
+                    }
                 }
 
                 const commentSpan = e.target.closest('[data-comment-id]');
@@ -558,6 +561,58 @@ createApp({
             return paragraphs.map(p => `<p>${p}</p>`).join('');
         };
 
+        const mergeCommentsData = (yCommentsMap, incomingCommentsArray) => {
+            if (!yCommentsMap || !Array.isArray(incomingCommentsArray)) return;
+
+            incomingCommentsArray.forEach(incoming => {
+                if (!incoming || !incoming.id) return;
+                const existing = yCommentsMap.get(incoming.id);
+
+                if (!existing) {
+                    yCommentsMap.set(incoming.id, incoming);
+                } else {
+                    const existingReplies = Array.isArray(existing.replies) ? existing.replies : [];
+                    const incomingReplies = Array.isArray(incoming.replies) ? incoming.replies : [];
+
+                    const repliesMap = new Map();
+                    existingReplies.forEach(r => {
+                        if (r && r.id) repliesMap.set(r.id, r);
+                    });
+                    incomingReplies.forEach(r => {
+                        if (!r || !r.id) return;
+                        if (!repliesMap.has(r.id)) {
+                            repliesMap.set(r.id, r);
+                        } else {
+                            const prev = repliesMap.get(r.id);
+                            const prevTime = new Date(prev.updatedAt || prev.createdAt || 0).getTime();
+                            const currTime = new Date(r.updatedAt || r.createdAt || 0).getTime();
+                            if (currTime >= prevTime) {
+                                repliesMap.set(r.id, { ...prev, ...r });
+                            }
+                        }
+                    });
+
+                    const mergedReplies = Array.from(repliesMap.values()).sort(
+                        (a, b) => new Date(a.createdAt || 0) - new Date(b.createdAt || 0)
+                    );
+
+                    const existingTime = new Date(existing.updatedAt || existing.createdAt || 0).getTime();
+                    const incomingTime = new Date(incoming.updatedAt || incoming.createdAt || 0).getTime();
+                    const useIncoming = incomingTime >= existingTime;
+
+                    const mergedComment = {
+                        ...existing,
+                        ...incoming,
+                        text: useIncoming ? (incoming.text !== undefined ? incoming.text : existing.text) : existing.text,
+                        updatedAt: useIncoming ? (incoming.updatedAt || existing.updatedAt) : existing.updatedAt,
+                        replies: mergedReplies
+                    };
+
+                    yCommentsMap.set(incoming.id, mergedComment);
+                }
+            });
+        };
+
         const loadInitialTranscript = async (jsonBuffer) => {
             if (!editor || !ydoc) return;
             if (jsonBuffer && typeof jsonBuffer === 'object' && !Array.isArray(jsonBuffer)) {
@@ -571,9 +626,7 @@ createApp({
                         console.error('Error applying CRDT update:', e);
                     }
                 } else if (jsonBuffer.comments && yComments) {
-                    jsonBuffer.comments.forEach(c => {
-                        if (c && c.id) yComments.set(c.id, c);
-                    });
+                    mergeCommentsData(yComments, jsonBuffer.comments);
                     if (jsonBuffer.content) {
                         editor.commands.setContent(jsonBuffer.content);
                     }
@@ -1074,11 +1127,6 @@ createApp({
             return `${m}:${s}.${ms}`;
         };
 
-        const executeSearch = () => { hasSearched.value = true; };
-        const nextSearch = () => {};
-        const prevSearch = () => {};
-        const exportBookmarks = () => {};
-
         watch(autoScroll, (newVal) => { if (ws) ws.setOptions({ autoCenter: newVal }); });
 
         watch(currentTime, async (newTime) => {
@@ -1104,11 +1152,11 @@ createApp({
             serverPreset, customServerUrl, isReadyToStart, isDraggingAudio, isDraggingJson, handleStartAudio, handleStartJson,
             handleAudioDrop, handleJsonDrop, startSession, connectedPeers, peersList, showPeersList, togglePeersList,
             currentTime, isPlaying, isAudioReady, zoomLevel, zoomIn, zoomOut, freqMinInput, freqMaxInput, freqLabels,
-            applyFrequencyRange, waveformRef, autoScroll, activeLineId, bookmarkedLines, searchQuery, searchResults,
-            currentSearchIndex, hasSearched, isLoopMode, hasActiveLoop, isDraggingWave, onWaveWheel, onWavePointerDown,
+            applyFrequencyRange, waveformRef, autoScroll,
+            isLoopMode, hasActiveLoop, isDraggingWave, onWaveWheel, onWavePointerDown,
             onWavePointerMove, onWavePointerUp, togglePlay, onZoom, jumpTo, toggleLoopMode, colorSwatches, closePopups,
-            formatTime, executeSearch, nextSearch, prevSearch, exportBookmarks, localJsonBuffer, editorRef, applyHighlight,
-            setAlignment, currentAlignment, highlightActiveSegment,
+            formatTime, localJsonBuffer, editorRef, applyHighlight,
+            setAlignment, currentAlignment, highlightActiveSegment, seekOnClick,
             isTextSelected, showHighlightPicker, toggleHighlightPicker, highlightColors, clearHighlight,
             commentsList, activeCommentId, selectComment, jumpToCommentInEditor, startEditComment, saveCommentEdit,
             cancelCommentEdit, deleteComment, editingCommentId, editingCommentText, replyInputText, addReply, deleteReply,

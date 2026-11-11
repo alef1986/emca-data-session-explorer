@@ -55,6 +55,8 @@ export const dictionary = {
         align_left: 'Выключка по левому краю',
         align_justify: 'Выключка по ширине',
         highlight_current_segment: 'Подсветка текущего сегмента',
+        seek_on_click: 'Переход по клику',
+        seek_on_click_hint: 'Перематывать аудио при клике на слово в тексте',
         search_placeholder: 'Поиск по тексту...',
         search_button: 'Искать',
         of: 'из',
@@ -143,6 +145,8 @@ export const dictionary = {
         align_left: 'Align left',
         align_justify: 'Justify',
         highlight_current_segment: 'Highlight current segment',
+        seek_on_click: 'Click to seek',
+        seek_on_click_hint: 'Seek audio when clicking on transcript words',
         search_placeholder: 'Search text...',
         search_button: 'Search',
         of: 'of',
@@ -178,11 +182,11 @@ export const dictionary = {
 };
 
 export const colorSwatches = [
-    { key: '', DotClass: 'bg-white', barClass: 'bg-gray-200 group-hover:bg-gray-300', cardClass: 'bg-white border-transparent hover:bg-gray-50', activeCardClass: 'bg-amber-50/90 border-amber-300' },
-    { key: 'red', DotClass: 'bg-rose-500', barClass: 'bg-rose-500', cardClass: 'bg-rose-50/70 border-rose-200', activeCardClass: 'bg-rose-100/90 border-amber-400' },
-    { key: 'green', DotClass: 'bg-emerald-500', barClass: 'bg-emerald-500', cardClass: 'bg-emerald-50/70 border-emerald-200', activeCardClass: 'bg-emerald-100/90 border-amber-400' },
-    { key: 'blue', DotClass: 'bg-sky-500', barClass: 'bg-sky-500', cardClass: 'bg-sky-50/70 border-sky-200', activeCardClass: 'bg-sky-100/90 border-amber-400' },
-    { key: 'purple', DotClass: 'bg-purple-500', barClass: 'bg-purple-500', cardClass: 'bg-purple-50/70 border-purple-200', activeCardClass: 'bg-purple-100/90 border-amber-400' },
-    { key: 'orange', DotClass: 'bg-orange-500', barClass: 'bg-orange-500', cardClass: 'bg-orange-50/70 border-orange-200', activeCardClass: 'bg-orange-100/90 border-amber-400' },
-    { key: 'teal', DotClass: 'bg-teal-500', barClass: 'bg-teal-500', cardClass: 'bg-teal-50/70 border-teal-200', activeCardClass: 'bg-teal-100/90 border-amber-400' }
+    { key: '', hex: '#94a3b8', DotClass: 'bg-white', barClass: 'bg-gray-200 group-hover:bg-gray-300', cardClass: 'bg-white border-transparent hover:bg-gray-50', activeCardClass: 'bg-amber-50/90 border-amber-300' },
+    { key: 'red', hex: '#f43f5e', DotClass: 'bg-rose-500', barClass: 'bg-rose-500', cardClass: 'bg-rose-50/70 border-rose-200', activeCardClass: 'bg-rose-100/90 border-amber-400' },
+    { key: 'green', hex: '#10b981', DotClass: 'bg-emerald-500', barClass: 'bg-emerald-500', cardClass: 'bg-emerald-50/70 border-emerald-200', activeCardClass: 'bg-emerald-100/90 border-amber-400' },
+    { key: 'blue', hex: '#0ea5e9', DotClass: 'bg-sky-500', barClass: 'bg-sky-500', cardClass: 'bg-sky-50/70 border-sky-200', activeCardClass: 'bg-sky-100/90 border-amber-400' },
+    { key: 'purple', hex: '#a855f7', DotClass: 'bg-purple-500', barClass: 'bg-purple-500', cardClass: 'bg-purple-50/70 border-purple-200', activeCardClass: 'bg-purple-100/90 border-amber-400' },
+    { key: 'orange', hex: '#f97316', DotClass: 'bg-orange-500', barClass: 'bg-orange-500', cardClass: 'bg-orange-50/70 border-orange-200', activeCardClass: 'bg-orange-100/90 border-amber-400' },
+    { key: 'teal', hex: '#14b8a6', DotClass: 'bg-teal-500', barClass: 'bg-teal-500', cardClass: 'bg-teal-50/70 border-teal-200', activeCardClass: 'bg-teal-100/90 border-amber-400' }
 ];

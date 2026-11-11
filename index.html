@@ -352,6 +352,16 @@
                                 <span class="font-medium text-xs">{{ t('highlight_current_segment') }}</span>
                             </label>
 
+                            <!-- Галочка перехода к аудио по клику -->
+                            <label class="flex items-center gap-1.5 text-xs text-gray-600 hover:text-gray-900 cursor-pointer select-none px-2 py-1 rounded-lg bg-gray-50 hover:bg-gray-100 border border-gray-200 transition-colors" :title="t('seek_on_click_hint')">
+                                <input 
+                                    type="checkbox" 
+                                    v-model="seekOnClick" 
+                                    class="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                                >
+                                <span class="font-medium text-xs">{{ t('seek_on_click') }}</span>
+                            </label>
+
                             <div class="h-4 w-px bg-gray-300 mx-1"></div>
 
                             <!-- Кружок выбора цвета подсветки (7 цветов) -->
@@ -417,7 +427,7 @@
                     
                     <!-- Контейнер для Rich Text -->
                     <div class="overflow-y-auto flex-1 pr-3">
-                        <div ref="editorRef" class="w-full h-full text-gray-800" spellcheck="false"></div>
+                        <div ref="editorRef" class="w-full h-full text-gray-800 select-text" :class="{ 'disable-timecode-cursor': !seekOnClick }" spellcheck="false"></div>
                     </div>
                 </div>
 
@@ -464,7 +474,7 @@
                             :key="comment.id"
                             :id="'comment-card-' + comment.id"
                             @click="selectComment(comment.id)"
-                            class="p-3 rounded-xl border transition-all text-xs bg-white"
+                            class="p-3 rounded-xl border transition-all text-xs bg-white select-text"
                             :class="activeCommentId === comment.id ? 'border-amber-400 ring-2 ring-amber-100 shadow-sm bg-amber-50/10' : 'border-gray-200 hover:border-gray-300'"
                         >
                             <!-- Цитата выделенного текста -->
