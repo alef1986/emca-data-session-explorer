@@ -114,7 +114,8 @@ export const dictionary = {
         preview_banner_notice: 'Режим предпросмотра: объединение с правками от {author} ({fileName}). Новые комментарии и ответы отмечены бейджем NEW.',
         anonymize_speakers: 'Анонимизировать имена спикеров',
         anonymize_speakers_hint: 'Спикер 1, Спикер 2...',
-        speaker_prefix: 'Спикер'
+        speaker_prefix: 'Спикер',
+        confirm_overwrite_autosave: 'Найдена ранее сохраненная сессия (автосохранение). Перезаписать её новым загруженным файлом (ОК) или восстановить сохранение (Отмена)?'
     },
     en: {
         start_subtitle: 'Select session mode',
@@ -231,7 +232,8 @@ export const dictionary = {
         preview_banner_notice: 'Preview mode: merged with edits from {author} ({fileName}). New comments and replies are marked with a NEW badge.',
         anonymize_speakers: 'Anonymize speaker names',
         anonymize_speakers_hint: 'Speaker 1, Speaker 2...',
-        speaker_prefix: 'Speaker'
+        speaker_prefix: 'Speaker',
+        confirm_overwrite_autosave: 'Found a previously autosaved session. Overwrite with the newly loaded file (OK) or restore the autosave (Cancel)?'
     }
 };
 

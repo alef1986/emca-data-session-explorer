@@ -1188,10 +1188,34 @@ createApp({
                         initPlayer();
                         initRichTextEditor();
 
-                        // 3. Если есть localJsonBuffer - вызываем loadInitialTranscript(localJsonBuffer.value) и очищаем буфер
+                        // 3. Если есть localJsonBuffer - обрабатываем с запросом перезаписи при наличии автосохранения
                         if (localJsonBuffer.value) {
-                            const hasExistingData = ydoc.getXmlFragment('emca-transcript').length > 0;
-                            if (!hasExistingData) {
+                            const transcriptFrag = ydoc.getXmlFragment('emca-transcript');
+                            const hasExistingData = transcriptFrag.length > 0;
+                            let shouldLoadNew = true;
+
+                            if (hasExistingData) {
+                                const overwrite = window.confirm(t.value('confirm_overwrite_autosave'));
+                                if (!overwrite) {
+                                    shouldLoadNew = false; // Пользователь выбрал "Отмена" -> восстанавливаем из IndexedDB
+                                } else {
+                                    // Пользователь выбрал "ОК" -> Очищаем старый стейт перед загрузкой нового
+                                    ydoc.transact(() => {
+                                        if (transcriptFrag.length > 0) transcriptFrag.delete(0, transcriptFrag.length);
+                                        
+                                        const currentComments = Array.from(yComments.keys());
+                                        for (const key of currentComments) yComments.delete(key);
+                                        
+                                        const currentMeta = Array.from(yMeta.keys());
+                                        for (const key of currentMeta) yMeta.delete(key);
+                                        
+                                        const currentProposals = Array.from(yProposals.keys());
+                                        for (const key of currentProposals) yProposals.delete(key);
+                                    });
+                                }
+                            }
+
+                            if (shouldLoadNew) {
                                 await loadInitialTranscript(localJsonBuffer.value);
                             }
                             localJsonBuffer.value = null;
