@@ -87,7 +87,19 @@ export const dictionary = {
         color_purple: 'Фиолетовый',
         color_pink: 'Розовый',
         color_orange: 'Оранжевый',
-        color_teal: 'Бирюзовый'
+        color_teal: 'Бирюзовый',
+        propose_edits: 'Предложить свои правки (.json)',
+        propose_edits_hint: 'Предложить ведущему файл с правками сессии',
+        proposal_pending_status: 'Ваши правки отправлены ведущему на проверку...',
+        error_v2_required: 'Для слияния правок необходим файл сессии v2.0, сохраненный из программы',
+        confirm_different_session: 'Идентификатор сессии в файле не совпадает с текущим. Возможно, файл от другой сессии. Продолжить?',
+        proposal_banner_title: 'Участник {author} предлагает объединить правки из файла {fileName}',
+        proposal_received_hint: 'Вы можете оценить изменения в режиме превью перед принятием или отклонить их.',
+        preview_edits: 'Посмотреть склейку (Превью)',
+        reject_immediately: 'Сразу отклонить',
+        accept_edits: 'Принять правки (Обновить бейзлайн)',
+        reject_restore: 'Отклонить (Вернуть мой бейзлайн)',
+        preview_banner_notice: 'Режим предпросмотра: объединение с правками от {author} ({fileName}). Новые комментарии и ответы отмечены бейджем NEW.'
     },
     en: {
         start_subtitle: 'Select session mode',
@@ -177,7 +189,19 @@ export const dictionary = {
         color_purple: 'Purple',
         color_pink: 'Pink',
         color_orange: 'Orange',
-        color_teal: 'Teal'
+        color_teal: 'Teal',
+        propose_edits: 'Propose your edits (.json)',
+        propose_edits_hint: 'Propose a session edits file to the host',
+        proposal_pending_status: 'Your edits have been submitted to the host for review...',
+        error_v2_required: 'A v2.0 session file saved from the app is required to merge edits',
+        confirm_different_session: 'Session ID in the file does not match the current session. The file may belong to a different session. Continue?',
+        proposal_banner_title: 'Participant {author} proposes merging edits from file {fileName}',
+        proposal_received_hint: 'You can inspect merged changes in preview mode before accepting, or reject them right away.',
+        preview_edits: 'Preview merged edits',
+        reject_immediately: 'Reject immediately',
+        accept_edits: 'Accept edits (Update baseline)',
+        reject_restore: 'Reject (Restore my baseline)',
+        preview_banner_notice: 'Preview mode: merged with edits from {author} ({fileName}). New comments and replies are marked with a NEW badge.'
     }
 };
 

@@ -14,7 +14,15 @@ import TextAlign from 'https://esm.sh/@tiptap/extension-text-align@2.2.4';
 createApp({
     setup() {
         const locale = ref('ru');
-        const t = computed(() => (key) => dictionary[locale.value][key] || key);
+        const t = computed(() => (key, params) => {
+            let text = dictionary[locale.value]?.[key] || dictionary.ru?.[key] || key;
+            if (params && typeof params === 'object') {
+                Object.entries(params).forEach(([k, v]) => {
+                    text = text.replace(new RegExp(`{${k}}`, 'g'), v);
+                });
+            }
+            return text;
+        });
         const toggleLocale = () => { locale.value = locale.value === 'ru' ? 'en' : 'ru'; };
 
         const sessionMode = ref(null); 
@@ -60,6 +68,21 @@ createApp({
         const replyInputText = ref({});
         const commentsList = ref([]);
         let yComments = null;
+        let yMeta = null;
+        let yProposals = null;
+        const activeProposal = ref(null);
+        const baselineSnapshot = ref(null);
+        const proposalFileInput = ref(null);
+
+        const isCommentNew = (commentId) => {
+            if (!baselineSnapshot.value || !baselineSnapshot.value.oldCommentIds) return false;
+            return !baselineSnapshot.value.oldCommentIds.has(commentId);
+        };
+
+        const isReplyNew = (replyId) => {
+            if (!baselineSnapshot.value || !baselineSnapshot.value.oldReplyIds) return false;
+            return !baselineSnapshot.value.oldReplyIds.has(replyId);
+        };
 
         let ydoc = null;
         let provider = null;
@@ -615,6 +638,12 @@ createApp({
 
         const loadInitialTranscript = async (jsonBuffer) => {
             if (!editor || !ydoc) return;
+            if (yMeta && !yMeta.get('transcriptId')) {
+                const tid = (jsonBuffer && typeof jsonBuffer === 'object' && !Array.isArray(jsonBuffer) && jsonBuffer.transcriptId)
+                    ? jsonBuffer.transcriptId
+                    : ('tr_' + Date.now() + '_' + Math.random().toString(36).substring(2, 8));
+                yMeta.set('transcriptId', tid);
+            }
             if (jsonBuffer && typeof jsonBuffer === 'object' && !Array.isArray(jsonBuffer)) {
                 if (jsonBuffer._yjs_state) {
                     try {
@@ -652,10 +681,25 @@ createApp({
                 const Y = yjsModule.default || yjsModule;
                 ydoc = new Y.Doc();
                 yComments = ydoc.getMap('emca-comments');
+                yMeta = ydoc.getMap('emca-meta');
+                yProposals = ydoc.getMap('emca-proposals');
+
+                baselineSnapshot.value = null;
+                activeProposal.value = null;
+
                 yComments.observeDeep(() => {
                     updateCommentsFromYjs();
                 });
                 updateCommentsFromYjs();
+
+                yProposals.observe(() => {
+                    const act = yProposals.get('active');
+                    activeProposal.value = act || null;
+                    if (!act && baselineSnapshot.value) {
+                        baselineSnapshot.value = null;
+                    }
+                });
+                activeProposal.value = yProposals.get('active') || null;
 
                 if (sessionMode.value === 'local') {
                     isSessionStarted.value = true;
@@ -906,6 +950,7 @@ createApp({
 
                 const payload = {
                     version: '2.0',
+                    transcriptId: yMeta ? yMeta.get('transcriptId') : undefined,
                     exportedAt: new Date().toISOString(),
                     audioFileName: audioFileName.value || '',
                     comments: commentsList.value,
@@ -922,6 +967,117 @@ createApp({
                 URL.revokeObjectURL(url);
             } catch (err) {
                 console.error('Export error:', err);
+            }
+        };
+
+        const handleProposalFileChange = (event) => {
+            const file = event.target?.files?.[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                try {
+                    const parsed = JSON.parse(e.target.result);
+                    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed) || !parsed._yjs_state) {
+                        alert(t('error_v2_required'));
+                        event.target.value = '';
+                        return;
+                    }
+
+                    const currentTranscriptId = yMeta ? yMeta.get('transcriptId') : null;
+                    const fileTranscriptId = parsed.transcriptId;
+                    if (currentTranscriptId && fileTranscriptId && currentTranscriptId !== fileTranscriptId) {
+                        const confirmed = window.confirm(t('confirm_different_session'));
+                        if (!confirmed) {
+                            event.target.value = '';
+                            return;
+                        }
+                    }
+
+                    const proposal = {
+                        id: 'prop_' + Date.now(),
+                        author: userName.value.trim() || 'Guest',
+                        fileName: file.name,
+                        yjsState: parsed._yjs_state,
+                        comments: parsed.comments || [],
+                        createdAt: new Date().toISOString(),
+                        status: 'pending'
+                    };
+
+                    if (yProposals) {
+                        yProposals.set('active', proposal);
+                    }
+                } catch (err) {
+                    console.error('Failed to parse proposal json:', err);
+                    alert(t('error_v2_required'));
+                } finally {
+                    event.target.value = '';
+                }
+            };
+            reader.readAsText(file);
+        };
+
+        const previewProposal = async () => {
+            if (!editor || !ydoc || !yProposals) return;
+            const proposal = yProposals.get('active');
+            if (!proposal || !proposal.yjsState) return;
+
+            baselineSnapshot.value = {
+                editorJson: editor.getJSON(),
+                comments: JSON.parse(JSON.stringify(commentsList.value)),
+                oldCommentIds: new Set(commentsList.value.map(c => c.id)),
+                oldReplyIds: new Set(commentsList.value.flatMap(c => (c.replies || []).map(r => r.id)))
+            };
+
+            yProposals.set('active', {
+                ...proposal,
+                status: 'previewing'
+            });
+
+            try {
+                const yjsModule = await import('https://esm.sh/yjs@13.6.18');
+                const Y = yjsModule.default || yjsModule;
+                const update = base64ToUint8Array(proposal.yjsState);
+                Y.applyUpdate(ydoc, update);
+
+                if (yComments && proposal.comments && Array.isArray(proposal.comments)) {
+                    mergeCommentsData(yComments, proposal.comments);
+                }
+            } catch (err) {
+                console.error('Failed to apply preview update:', err);
+            }
+        };
+
+        const acceptProposal = () => {
+            baselineSnapshot.value = null;
+            if (yProposals) {
+                yProposals.delete('active');
+            }
+        };
+
+        const rejectProposal = () => {
+            if (baselineSnapshot.value) {
+                if (editor && baselineSnapshot.value.editorJson) {
+                    editor.commands.setContent(baselineSnapshot.value.editorJson);
+                }
+                if (yComments && ydoc) {
+                    ydoc.transact(() => {
+                        const currentKeys = Array.from(yComments.keys());
+                        for (const key of currentKeys) {
+                            yComments.delete(key);
+                        }
+                        if (Array.isArray(baselineSnapshot.value.comments)) {
+                            baselineSnapshot.value.comments.forEach(comment => {
+                                yComments.set(comment.id, comment);
+                            });
+                        }
+                    });
+                    updateCommentsFromYjs();
+                }
+                baselineSnapshot.value = null;
+            }
+            if (yProposals) {
+                yProposals.delete('active');
             }
         };
 
@@ -1160,7 +1316,9 @@ createApp({
             isTextSelected, showHighlightPicker, toggleHighlightPicker, highlightColors, clearHighlight,
             commentsList, activeCommentId, selectComment, jumpToCommentInEditor, startEditComment, saveCommentEdit,
             cancelCommentEdit, deleteComment, editingCommentId, editingCommentText, replyInputText, addReply, deleteReply,
-            addCommentAtSelection, formatCommentTime, exportJson
+            addCommentAtSelection, formatCommentTime, exportJson,
+            activeProposal, baselineSnapshot, isCommentNew, isReplyNew, proposalFileInput, handleProposalFileChange,
+            previewProposal, acceptProposal, rejectProposal
         };
     }
 }).mount('#app');
