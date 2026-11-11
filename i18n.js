@@ -111,7 +111,10 @@ export const dictionary = {
         reject_immediately: 'Сразу отклонить',
         accept_edits: 'Принять правки (Обновить бейзлайн)',
         reject_restore: 'Отклонить (Вернуть мой бейзлайн)',
-        preview_banner_notice: 'Режим предпросмотра: объединение с правками от {author} ({fileName}). Новые комментарии и ответы отмечены бейджем NEW.'
+        preview_banner_notice: 'Режим предпросмотра: объединение с правками от {author} ({fileName}). Новые комментарии и ответы отмечены бейджем NEW.',
+        anonymize_speakers: 'Анонимизировать имена спикеров',
+        anonymize_speakers_hint: 'Спикер 1, Спикер 2...',
+        speaker_prefix: 'Спикер'
     },
     en: {
         start_subtitle: 'Select session mode',
@@ -225,7 +228,10 @@ export const dictionary = {
         reject_immediately: 'Reject immediately',
         accept_edits: 'Accept edits (Update baseline)',
         reject_restore: 'Reject (Restore my baseline)',
-        preview_banner_notice: 'Preview mode: merged with edits from {author} ({fileName}). New comments and replies are marked with a NEW badge.'
+        preview_banner_notice: 'Preview mode: merged with edits from {author} ({fileName}). New comments and replies are marked with a NEW badge.',
+        anonymize_speakers: 'Anonymize speaker names',
+        anonymize_speakers_hint: 'Speaker 1, Speaker 2...',
+        speaker_prefix: 'Speaker'
     }
 };
 

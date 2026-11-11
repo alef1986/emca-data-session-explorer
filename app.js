@@ -526,6 +526,8 @@ createApp({
         const highlightActiveSegment = ref(localStorage.getItem('emca_highlight_segment') === 'true');
         const seekOnClick = ref(localStorage.getItem('emca_seek_on_click') !== 'false');
         watch(seekOnClick, (val) => localStorage.setItem('emca_seek_on_click', val));
+        const anonymizeSpeakers = ref(localStorage.getItem('emca_anonymize_speakers') === 'true');
+        watch(anonymizeSpeakers, (val) => localStorage.setItem('emca_anonymize_speakers', val));
         
         let ws = null;
         let activeSpectrogramPlugin = null;
@@ -691,6 +693,28 @@ createApp({
             if (file) processAudioFile(file);
         };
 
+        const anonymizeTranscriptSegments = (segments) => {
+            if (!Array.isArray(segments)) return segments;
+            const speakerMap = new Map();
+            let speakerCounter = 0;
+            const prefix = t.value('speaker_prefix');
+
+            for (const seg of segments) {
+                if (!seg) continue;
+                const rawSpeaker = seg.speaker != null ? String(seg.speaker).trim() : '';
+                if (!rawSpeaker) {
+                    seg.speaker = null;
+                } else {
+                    if (!speakerMap.has(rawSpeaker)) {
+                        speakerCounter++;
+                        speakerMap.set(rawSpeaker, `${prefix} ${speakerCounter}`);
+                    }
+                    seg.speaker = speakerMap.get(rawSpeaker);
+                }
+            }
+            return segments;
+        };
+
         const processJsonFile = (file) => {
             if (file) {
                 const reader = new FileReader();
@@ -707,6 +731,10 @@ createApp({
                         } else {
                             const parsed = JSON.parse(rawContent);
                             result = normalizeJsonTranscript(parsed);
+                        }
+
+                        if (anonymizeSpeakers.value) {
+                            result = anonymizeTranscriptSegments(result);
                         }
 
                         jsonFileName.value = file.name;
@@ -1941,7 +1969,7 @@ createApp({
             isLoopMode, hasActiveLoop, isDraggingWave, onWaveWheel, onWavePointerDown,
             onWavePointerMove, onWavePointerUp, togglePlay, onZoom, jumpTo, toggleLoopMode, colorSwatches, closePopups,
             formatTime, localJsonBuffer, editorRef, applyHighlight,
-            setAlignment, currentAlignment, highlightActiveSegment, seekOnClick,
+            setAlignment, currentAlignment, highlightActiveSegment, seekOnClick, anonymizeSpeakers,
             isTextSelected, showHighlightPicker, toggleHighlightPicker, highlightColors, clearHighlight,
             commentsList, activeCommentId, selectComment, jumpToCommentInEditor, startEditComment, saveCommentEdit,
             cancelCommentEdit, deleteComment, editingCommentId, editingCommentText, replyInputText, addReply, deleteReply,
