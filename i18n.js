@@ -115,7 +115,10 @@ export const dictionary = {
         anonymize_speakers: 'Анонимизировать имена спикеров',
         anonymize_speakers_hint: 'Спикер 1, Спикер 2...',
         speaker_prefix: 'Спикер',
-        confirm_overwrite_autosave: 'Найдена ранее сохраненная сессия (автосохранение). Перезаписать её новым загруженным файлом (ОК) или восстановить сохранение (Отмена)?'
+        confirm_overwrite_autosave: 'Найдена ранее сохраненная сессия (автосохранение). Перезаписать её новым загруженным файлом (ОК) или восстановить сохранение (Отмена)?',
+        toggle_video: 'Показать/Скрыть видео',
+        pip_mode: 'Картинка в картинке',
+        reset_zoom: 'Сбросить масштаб'
     },
     en: {
         start_subtitle: 'Select session mode',
@@ -233,7 +236,10 @@ export const dictionary = {
         anonymize_speakers: 'Anonymize speaker names',
         anonymize_speakers_hint: 'Speaker 1, Speaker 2...',
         speaker_prefix: 'Speaker',
-        confirm_overwrite_autosave: 'Found a previously autosaved session. Overwrite with the newly loaded file (OK) or restore the autosave (Cancel)?'
+        confirm_overwrite_autosave: 'Found a previously autosaved session. Overwrite with the newly loaded file (OK) or restore the autosave (Cancel)?',
+        toggle_video: 'Toggle Video',
+        pip_mode: 'Picture-in-Picture',
+        reset_zoom: 'Reset Zoom'
     }
 };
 

@@ -339,6 +339,20 @@
                             {{ isPlaying ? t('stop') : t('play') }}
                         </button>
 
+                        <!-- КНОПКА ПОКАЗАТЬ/СКРЫТЬ ВИДЕО -->
+                        <button 
+                            @click="isVideoMode && (showVideo = !showVideo)" 
+                            :disabled="!isVideoMode"
+                            class="px-3 py-1.5 rounded-lg text-sm font-medium transition-colors border flex items-center gap-1.5"
+                            :class="isVideoMode ? (showVideo ? 'bg-indigo-600 border-indigo-700 text-white shadow-sm cursor-pointer' : 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50 cursor-pointer') : 'bg-gray-100 border-gray-200 text-gray-400 cursor-not-allowed opacity-60'"
+                            :title="t('toggle_video')"
+                        >
+                            <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                            </svg>
+                            <span class="hidden sm:inline">{{ t('toggle_video') }}</span>
+                        </button>
+
                         <div class="flex items-center gap-1.5 text-xs text-gray-600 border-l border-gray-300 pl-3 hidden md:flex">
                             <span class="font-medium">{{ t('freq_range') }}</span>
                             <input type="number" v-model.number="freqMinInput" @keyup.enter="applyFrequencyRange" min="0" step="50" class="w-16 px-1.5 py-1 border border-gray-300 rounded text-center font-mono focus:border-blue-500 focus:outline-none">
@@ -360,29 +374,87 @@
                     </div>
                 </div>
                 
-                <div 
-                    class="relative w-full rounded-lg bg-[#1e1e1e] border border-gray-300 overflow-hidden shrink-0"
-                    :class="isLoopMode ? 'cursor-crosshair' : (isDraggingWave ? 'cursor-grabbing' : 'cursor-grab')"
-                    style="touch-action: none;"
-                    @pointerdown="onWavePointerDown"
-                    @pointermove="onWavePointerMove"
-                    @pointerup="onWavePointerUp"
-                    @pointercancel="onWavePointerUp"
-                    @wheel="onWaveWheel"
-                >
-                    <div ref="waveformRef" class="w-full"></div>
+                <div class="flex gap-4 shrink-0 h-[200px]">
+                    <div 
+                        class="relative rounded-lg bg-[#1e1e1e] border border-gray-300 overflow-hidden h-full"
+                        :class="[
+                            (isVideoMode && showVideo) ? 'w-2/3' : 'w-full',
+                            isLoopMode ? 'cursor-crosshair' : (isDraggingWave ? 'cursor-grabbing' : 'cursor-grab')
+                        ]"
+                        style="touch-action: none;"
+                        @pointerdown="onWavePointerDown"
+                        @pointermove="onWavePointerMove"
+                        @pointerup="onWavePointerUp"
+                        @pointercancel="onWavePointerUp"
+                        @wheel="onWaveWheel"
+                    >
+                        <div ref="waveformRef" class="w-full"></div>
 
-                    <div class="absolute left-0 bottom-0 h-[120px] w-16 pointer-events-none flex flex-col justify-between py-1 px-1.5 bg-gradient-to-r from-black/80 via-black/40 to-transparent z-10 font-mono text-[10px] text-gray-200 select-none">
-                        <span v-for="(label, idx) in freqLabels" :key="idx" class="leading-none drop-shadow">{{ label }}</span>
+                        <div class="absolute left-0 bottom-0 h-[120px] w-16 pointer-events-none flex flex-col justify-between py-1 px-1.5 bg-gradient-to-r from-black/80 via-black/40 to-transparent z-10 font-mono text-[10px] text-gray-200 select-none">
+                            <span v-for="(label, idx) in freqLabels" :key="idx" class="leading-none drop-shadow">{{ label }}</span>
+                        </div>
+
+                        <div class="absolute right-2 top-1.5 pointer-events-none z-10 text-[11px] font-mono px-2 py-0.5 rounded bg-black/60 text-gray-300">
+                            {{ isLoopMode ? t('mode_loop_draw') : t('mode_pan_seek') }}
+                        </div>
+
+                        <div v-if="!isAudioReady" class="absolute inset-0 bg-white/90 flex items-center justify-center text-gray-600 z-20">
+                            <svg class="animate-spin -ml-1 mr-3 h-5 w-5 text-blue-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                            {{ t('rendering') }}
+                        </div>
                     </div>
 
-                    <div class="absolute right-2 top-1.5 pointer-events-none z-10 text-[11px] font-mono px-2 py-0.5 rounded bg-black/60 text-gray-300">
-                        {{ isLoopMode ? t('mode_loop_draw') : t('mode_pan_seek') }}
-                    </div>
+                    <!-- БЛОК ВИДЕО -->
+                    <div v-show="isVideoMode && showVideo" class="w-1/3 relative rounded-lg bg-black border border-gray-300 overflow-hidden flex flex-col group">
+                        <video 
+                            ref="videoRef" 
+                            class="w-full h-full object-contain cursor-grab active:cursor-grabbing" 
+                            :style="{ transform: `scale(${videoZoom}) translate(${videoPan.x}px, ${videoPan.y}px)`, transition: isPanningVideo ? 'none' : 'transform 0.1s' }" 
+                            @pointerdown="onVideoPointerDown" 
+                            @pointermove="onVideoPointerMove" 
+                            @pointerup="onVideoPointerUp" 
+                            @pointerleave="onVideoPointerUp" 
+                            playsinline
+                        ></video>
 
-                    <div v-if="!isAudioReady" class="absolute inset-0 bg-white/90 flex items-center justify-center text-gray-600 z-20">
-                        <svg class="animate-spin -ml-1 mr-3 h-5 w-5 text-blue-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
-                        {{ t('rendering') }}
+                        <!-- Панель управления видео в правом верхнем углу -->
+                        <div class="absolute top-2 right-2 hidden group-hover:flex items-center gap-2 bg-black/60 backdrop-blur-xs px-2 py-1.5 rounded-lg border border-white/20 text-white z-20">
+                            <!-- Кнопка PiP -->
+                            <button 
+                                type="button"
+                                @click="togglePiP" 
+                                class="p-1 hover:bg-white/20 rounded transition-colors text-white focus:outline-none" 
+                                :title="t('pip_mode')"
+                            >
+                                <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M3 5h18a2 2 0 012 2v10a2 2 0 01-2 2H3a2 2 0 01-2-2V7a2 2 0 012-2z" />
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M13 11h6v5h-6z" />
+                                </svg>
+                            </button>
+
+                            <!-- Ползунок зума -->
+                            <input 
+                                type="range" 
+                                min="1" 
+                                max="4" 
+                                step="0.1" 
+                                v-model.number="videoZoom" 
+                                class="w-16 accent-blue-500 cursor-pointer"
+                            >
+
+                            <!-- Кнопка сброса зума -->
+                            <button 
+                                type="button"
+                                @click="resetVideoZoom" 
+                                class="px-1.5 py-0.5 text-xs font-semibold hover:bg-white/20 rounded transition-colors text-white flex items-center gap-1 focus:outline-none" 
+                                :title="t('reset_zoom')"
+                            >
+                                <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                                </svg>
+                                <span>{{ Number(videoZoom).toFixed(1) }}x</span>
+                            </button>
+                        </div>
                     </div>
                 </div>
             </div>

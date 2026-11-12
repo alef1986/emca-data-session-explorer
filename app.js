@@ -520,6 +520,12 @@ createApp({
         const freqMax = ref(500);
 
         const waveformRef = ref(null);
+        const isVideoMode = ref(false);
+        const showVideo = ref(true);
+        const videoRef = ref(null);
+        const videoZoom = ref(1);
+        const videoPan = ref({ x: 0, y: 0 });
+        const isPanningVideo = ref(false);
         const editorRef = ref(null);
         const autoScroll = ref(true);
         const currentAlignment = ref('left');
@@ -682,6 +688,7 @@ createApp({
 
         const processAudioFile = (file) => {
             if (file) {
+                isVideoMode.value = file.type.startsWith('video/');
                 audioUrl.value = URL.createObjectURL(file);
                 audioFileName.value = file.name;
             }
@@ -1185,7 +1192,7 @@ createApp({
                         // 2. Вызываем initPlayer() и initRichTextEditor()
                         isSessionStarted.value = true;
                         await nextTick();
-                        initPlayer();
+                        await initPlayer();
                         initRichTextEditor();
 
                         // 3. Если есть localJsonBuffer - обрабатываем с запросом перезаписи при наличии автосохранения
@@ -1801,12 +1808,22 @@ createApp({
             return wrapper ? wrapper.parentElement : null;
         };
 
-        const initPlayer = () => {
+        const initPlayer = async () => {
+            await nextTick();
             regionsPlugin = RegionsPlugin.create();
-            ws = WaveSurfer.create({
+            const wsConfig = {
                 container: waveformRef.value, waveColor: '#60a5fa', progressColor: '#2563eb', cursorColor: '#ef4444',
-                cursorWidth: 2, height: 80, interact: false, autoCenter: autoScroll.value, url: audioUrl.value, plugins: [regionsPlugin]
-            });
+                cursorWidth: 2, height: 80, interact: false, autoCenter: autoScroll.value, plugins: [regionsPlugin]
+            };
+
+            if (isVideoMode.value && videoRef.value) {
+                videoRef.value.src = audioUrl.value;
+                wsConfig.media = videoRef.value;
+            } else {
+                wsConfig.url = audioUrl.value;
+            }
+
+            ws = WaveSurfer.create(wsConfig);
 
             initSpectrogram();
             ws.on('ready', () => { isAudioReady.value = true; });
@@ -1827,6 +1844,58 @@ createApp({
             });
             regionsPlugin.on('region-updated', () => { clearTimeout(loopTimeout); });
         };
+
+        const togglePiP = async () => {
+            if (!videoRef.value) return;
+            try {
+                if (document.pictureInPictureElement) {
+                    await document.exitPictureInPicture();
+                } else if (document.pictureInPictureEnabled) {
+                    await videoRef.value.requestPictureInPicture();
+                }
+            } catch (e) {
+                console.error('PiP error:', e);
+                alert('Picture-in-Picture is not supported or blocked by the browser.');
+            }
+        };
+
+        const onVideoPointerDown = (e) => {
+            if (Number(videoZoom.value) > 1) {
+                isPanningVideo.value = true;
+                try {
+                    e.currentTarget.setPointerCapture(e.pointerId);
+                } catch (_) {}
+            }
+        };
+
+        const onVideoPointerMove = (e) => {
+            if (isPanningVideo.value && Number(videoZoom.value) > 1) {
+                videoPan.value = {
+                    x: videoPan.value.x + (e.movementX || 0),
+                    y: videoPan.value.y + (e.movementY || 0)
+                };
+            }
+        };
+
+        const onVideoPointerUp = (e) => {
+            if (isPanningVideo.value) {
+                isPanningVideo.value = false;
+                try {
+                    e.currentTarget.releasePointerCapture(e.pointerId);
+                } catch (_) {}
+            }
+        };
+
+        const resetVideoZoom = () => {
+            videoZoom.value = 1;
+            videoPan.value = { x: 0, y: 0 };
+        };
+
+        watch(videoZoom, (newZoom) => {
+            if (Number(newZoom) <= 1) {
+                videoPan.value = { x: 0, y: 0 };
+            }
+        });
 
         const onWaveWheel = (e) => {
             if (!ws || !isAudioReady.value) return;
@@ -1999,7 +2068,9 @@ createApp({
             cancelCommentEdit, deleteComment, editingCommentId, editingCommentText, replyInputText, addReply, deleteReply,
             addCommentAtSelection, formatCommentTime, exportJson, exportWord,
             activeProposal, baselineSnapshot, isCommentNew, isReplyNew, proposalFileInput, handleProposalFileChange,
-            previewProposal, acceptProposal, rejectProposal
+            previewProposal, acceptProposal, rejectProposal,
+            isVideoMode, showVideo, videoRef, videoZoom, videoPan, isPanningVideo,
+            togglePiP, onVideoPointerDown, onVideoPointerMove, onVideoPointerUp, resetVideoZoom
         };
     }
 }).mount('#app');
