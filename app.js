@@ -467,7 +467,6 @@ createApp({
         const isDraggingJson = ref(false);
         const localJsonBuffer = ref(null); 
 
-        // Подсветка текста и комментарии
         const isTextSelected = ref(false);
         const showHighlightPicker = ref(false);
         const highlightColors = [
@@ -562,7 +561,6 @@ createApp({
 
             if (!editorRef.value) return;
 
-            // Быстрая проверка: если время внутри текущего диапазона и класс на месте
             if (currentActiveSegmentRange) {
                 if (time >= currentActiveSegmentRange.start && time <= currentActiveSegmentRange.end) {
                     const activeElements = editorRef.value.querySelectorAll('.active-segment-highlight');
@@ -602,11 +600,9 @@ createApp({
                 return;
             }
 
-            // Снимаем подсветку со старых элементов
             const oldHighlighted = editorRef.value.querySelectorAll('.active-segment-highlight');
             oldHighlighted.forEach(el => el.classList.remove('active-segment-highlight'));
 
-            // Добавляем подсветку всем элементам данного интервала
             for (let i = 0; i < allSpans.length; i++) {
                 const el = allSpans[i];
                 const s = parseFloat(el.getAttribute('data-start'));
@@ -619,7 +615,6 @@ createApp({
 
             currentActiveSegmentRange = { start: targetStart, end: targetEnd };
 
-            // Плавный скролл к элементу при необходимости
             if (firstMatchingEl) {
                 const container = editorRef.value.closest('.overflow-y-auto');
                 if (container) {
@@ -740,10 +735,6 @@ createApp({
                             result = normalizeJsonTranscript(parsed);
                         }
 
-                        if (anonymizeSpeakers.value) {
-                            result = anonymizeTranscriptSegments(result);
-                        }
-
                         jsonFileName.value = file.name;
                         if (isSessionStarted.value && ydoc) {
                             loadInitialTranscript(result);
@@ -758,6 +749,7 @@ createApp({
                 reader.readAsText(file);
             }
         };
+        
         const handleStartJson = (event) => processJsonFile(event.target.files[0]);
         const handleJsonDrop = (event) => {
             isDraggingJson.value = false;
@@ -1090,6 +1082,9 @@ createApp({
                     : ('tr_' + Date.now() + '_' + Math.random().toString(36).substring(2, 8));
                 yMeta.set('transcriptId', tid);
             }
+            
+            let segmentsToRender = null;
+
             if (jsonBuffer && typeof jsonBuffer === 'object' && !Array.isArray(jsonBuffer)) {
                 if (jsonBuffer._yjs_state) {
                     try {
@@ -1100,22 +1095,28 @@ createApp({
                     } catch (e) {
                         console.error('Error applying CRDT update:', e);
                     }
+                    return; // CRDT applies immediately, no HTML formatting needed
                 } else if (jsonBuffer.comments && yComments) {
                     mergeCommentsData(yComments, jsonBuffer.comments);
                     if (jsonBuffer.content) {
                         editor.commands.setContent(jsonBuffer.content);
                     }
+                    return; // V1 JSON fallback
                 } else {
-                    const normalized = normalizeJsonTranscript(jsonBuffer);
-                    if (Array.isArray(normalized)) {
-                        const htmlContent = formatTranscriptToHtml(normalized, 1.0);
-                        editor.commands.setContent(htmlContent);
-                    }
+                    segmentsToRender = normalizeJsonTranscript(jsonBuffer);
                 }
             } else if (Array.isArray(jsonBuffer)) {
-                const htmlContent = formatTranscriptToHtml(jsonBuffer, 1.0);
+                segmentsToRender = jsonBuffer;
+            }
+
+            if (segmentsToRender) {
+                if (anonymizeSpeakers.value) {
+                    segmentsToRender = anonymizeTranscriptSegments(segmentsToRender);
+                }
+                const htmlContent = formatTranscriptToHtml(segmentsToRender, 1.0);
                 editor.commands.setContent(htmlContent);
             }
+
             nextTick(() => {
                 if (highlightActiveSegment.value) {
                     updateActiveSegmentHighlight(currentTime.value);
@@ -1134,24 +1135,42 @@ createApp({
                     await checkServerConnection(activeSignalingServer.value);
                 }
 
-                if (idbProvider) {
-                    try { idbProvider.destroy(); } catch (e) {}
-                    idbProvider = null;
-                }
-                if (provider) {
-                    try { provider.destroy(); } catch (e) {}
-                    provider = null;
-                }
-                if (ydoc) {
-                    try { ydoc.destroy(); } catch (e) {}
-                    ydoc = null;
-                }
+                // Cleanup previous instances cleanly before wiping
+                if (idbProvider) { try { idbProvider.destroy(); } catch (e) {} idbProvider = null; }
+                if (provider) { try { provider.destroy(); } catch (e) {} provider = null; }
+                if (ydoc) { try { ydoc.destroy(); } catch (e) {} ydoc = null; }
 
                 const yjsModule = await import('https://esm.sh/yjs@13.6.18');
                 const Y = yjsModule.default || yjsModule;
+                const dbKey = 'emca-session-' + (sessionMode.value === 'local' ? audioFileName.value : roomName.value);
+
+                // Check if we are restoring a full v2.0 JSON session
+                let isJsonRestore = (localJsonBuffer.value && !Array.isArray(localJsonBuffer.value) && localJsonBuffer.value._yjs_state);
+                
+                if (isJsonRestore) {
+                    const overwrite = window.confirm(t.value('confirm_overwrite_autosave'));
+                    if (!overwrite) {
+                        // Keep autosave, discard the dropped JSON file
+                        localJsonBuffer.value = null;
+                        isJsonRestore = false;
+                    } else {
+                        // IMPORTANT: Wipe the database completely BEFORE initializing the real ydoc 
+                        // to prevent CRDT tombstone logical clock conflicts.
+                        const tempIdb = new IndexeddbPersistence(dbKey, new Y.Doc());
+                        await tempIdb.clearData();
+                        tempIdb.destroy();
+                    }
+                }
+
                 ydoc = new Y.Doc();
 
-                const dbKey = 'emca-session-' + (sessionMode.value === 'local' ? audioFileName.value : roomName.value);
+                if (isJsonRestore) {
+                    // Apply raw state directly from the file to the clean ydoc
+                    Y.applyUpdate(ydoc, base64ToUint8Array(localJsonBuffer.value._yjs_state));
+                    localJsonBuffer.value = null; // Successfully applied, discard buffer
+                }
+
+                // Connect to IndexedDB to start autosaving
                 idbProvider = new IndexeddbPersistence(dbKey, ydoc);
 
                 let awareness = null;
@@ -1167,7 +1186,6 @@ createApp({
                     isSyncedHandled = true;
 
                     try {
-                        // 1. Инициализируем карты yComments, yMeta, yProposals (с их observe)
                         yComments = ydoc.getMap('emca-comments');
                         yMeta = ydoc.getMap('emca-meta');
                         yProposals = ydoc.getMap('emca-proposals');
@@ -1175,27 +1193,22 @@ createApp({
                         baselineSnapshot.value = null;
                         activeProposal.value = null;
 
-                        yComments.observeDeep(() => {
-                            updateCommentsFromYjs();
-                        });
+                        yComments.observeDeep(() => { updateCommentsFromYjs(); });
                         updateCommentsFromYjs();
 
                         yProposals.observe(() => {
                             const act = yProposals.get('active');
                             activeProposal.value = act || null;
-                            if (!act && baselineSnapshot.value) {
-                                baselineSnapshot.value = null;
-                            }
+                            if (!act && baselineSnapshot.value) { baselineSnapshot.value = null; }
                         });
                         activeProposal.value = yProposals.get('active') || null;
 
-                        // 2. Вызываем initPlayer() и initRichTextEditor()
                         isSessionStarted.value = true;
                         await nextTick();
                         await initPlayer();
                         initRichTextEditor();
 
-                        // 3. Если есть localJsonBuffer - обрабатываем с запросом перезаписи при наличии автосохранения
+                        // Process non-JSON (VTT/SRT) text imports, appending as standard CRDT insertions
                         if (localJsonBuffer.value) {
                             const transcriptFrag = ydoc.getXmlFragment('emca-transcript');
                             const hasExistingData = transcriptFrag.length > 0;
@@ -1204,18 +1217,14 @@ createApp({
                             if (hasExistingData) {
                                 const overwrite = window.confirm(t.value('confirm_overwrite_autosave'));
                                 if (!overwrite) {
-                                    shouldLoadNew = false; // Пользователь выбрал "Отмена" -> восстанавливаем из IndexedDB
+                                    shouldLoadNew = false;
                                 } else {
-                                    // Пользователь выбрал "ОК" -> Очищаем старый стейт перед загрузкой нового
                                     ydoc.transact(() => {
                                         if (transcriptFrag.length > 0) transcriptFrag.delete(0, transcriptFrag.length);
-                                        
                                         const currentComments = Array.from(yComments.keys());
                                         for (const key of currentComments) yComments.delete(key);
-                                        
                                         const currentMeta = Array.from(yMeta.keys());
                                         for (const key of currentMeta) yMeta.delete(key);
-                                        
                                         const currentProposals = Array.from(yProposals.keys());
                                         for (const key of currentProposals) yProposals.delete(key);
                                     });
@@ -1228,7 +1237,6 @@ createApp({
                             localJsonBuffer.value = null;
                         }
 
-                        // 4. Если sessionMode !== 'local', только теперь подключаем WebrtcProvider!
                         if (sessionMode.value !== 'local') {
                             const webrtcModule = await import('https://esm.sh/y-webrtc@10.3.0?deps=yjs@13.6.18');
                             const WebrtcProvider = webrtcModule.WebrtcProvider;
