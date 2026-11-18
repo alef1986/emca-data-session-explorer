@@ -575,6 +575,7 @@ createApp({
                     userName: userName.value,
                     t: t.value
                 });
+                if (!proposal) return;
                 if (yProposals) {
                     yProposals.set('active', proposal);
                     alert(t.value('proposal_sent_notice'));
@@ -597,7 +598,8 @@ createApp({
                 ydoc,
                 yComments,
                 proposal,
-                commentsList: commentsList.value
+                commentsList: commentsList.value,
+                setFormattingFlag: (val) => { isInternalFormatting = val; }
             });
 
             if (snapshot) {

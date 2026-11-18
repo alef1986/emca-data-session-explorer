@@ -168,7 +168,10 @@ export const dictionary = {
         diff_file: 'Файл: {file}',
         merge_saved_success: 'Новый файл бейслайна успешно сохранен и скачан!',
         merge_comments_count: 'Комментариев: {count}',
-        merge_confirm_different_transcripts: 'Файл "{file}" содержит другой transcriptId. Возможно, он создан на основе другого файла. Продолжить добавление?'
+        merge_confirm_different_transcripts: 'Файл "{file}" содержит другой transcriptId. Возможно, он создан на основе другого файла. Продолжить добавление?',
+        diff_mark_transplant: 'Перенос разметки',
+        merge_unanchored_comment: 'Без привязки к тексту',
+        proposal_confirm_different_baseline: 'Файл правок "{file}" создан на основе другого файла транскрипта (несовпадение transcriptId). Вы хотите применить перенос комментариев и разметки на текущий транскрипт?'
     },
     en: {
         start_subtitle: 'Select session mode',
@@ -339,7 +342,10 @@ export const dictionary = {
         diff_file: 'File: {file}',
         merge_saved_success: 'New baseline file successfully saved and downloaded!',
         merge_comments_count: 'Comments: {count}',
-        merge_confirm_different_transcripts: 'File "{file}" has a different transcriptId. It might belong to a different transcript. Continue adding?'
+        merge_confirm_different_transcripts: 'File "{file}" has a different transcriptId. It might belong to a different transcript. Continue adding?',
+        diff_mark_transplant: 'Transplanted mark',
+        merge_unanchored_comment: 'Unanchored comment',
+        proposal_confirm_different_baseline: 'Edits file "{file}" is based on a different transcript baseline (transcriptId mismatch). Do you want to project its comments and formatting onto the current transcript?'
     }
 };
 

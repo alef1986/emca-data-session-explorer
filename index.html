@@ -380,9 +380,11 @@
 
                         <div v-for="ch in filteredMergeChanges" :key="ch.id" class="p-2.5 rounded-lg border text-xs flex flex-col gap-1.5 transition-all shadow-2xs" :class="ch.status === 'accepted' ? 'border-emerald-300 bg-emerald-50/40' : (ch.status === 'rejected' ? 'border-rose-300 bg-rose-50/40 opacity-70' : 'border-gray-200 bg-white')">
                             <div class="flex items-center justify-between gap-1">
-                                <div class="flex items-center gap-1.5 min-w-0">
+                                <div class="flex items-center gap-1.5 min-w-0 flex-wrap">
                                     <span class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-purple-100 text-purple-800 truncate max-w-[130px]" :title="ch.sourceFileName">#{{ ch.sourceFileIndex }} {{ ch.sourceAuthor }}</span>
                                     <span v-if="ch.type === 'transcript'" class="font-mono text-gray-600 font-bold shrink-0">{{ t('diff_line', { line: ch.lineNumber }) }}</span>
+                                    <span v-if="ch.diffType === 'mark_transplant'" class="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-indigo-100 text-indigo-700 shrink-0">{{ t('diff_mark_transplant') }}</span>
+                                    <span v-if="ch.unanchored" class="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-100 text-amber-800 shrink-0">{{ t('merge_unanchored_comment') }}</span>
                                 </div>
                                 <span class="px-1.5 py-0.5 rounded text-[10px] font-bold shrink-0" :class="ch.status === 'accepted' ? 'bg-emerald-100 text-emerald-800' : (ch.status === 'rejected' ? 'bg-rose-100 text-rose-800' : 'bg-gray-100 text-gray-600')">
                                     {{ ch.status === 'accepted' ? t('merge_accepted') : (ch.status === 'rejected' ? t('merge_rejected') : t('merge_pending')) }}
@@ -395,12 +397,15 @@
                                         <div class="p-1 rounded bg-red-50 text-red-700 line-through text-[11px] leading-tight break-words">{{ ch.baseText }}</div>
                                         <div class="p-1 rounded bg-emerald-50 text-emerald-800 font-medium text-[11px] leading-tight break-words">{{ ch.newText }}</div>
                                     </div>
+                                    <div v-else-if="ch.diffType === 'mark_transplant'" class="p-1 rounded bg-indigo-50 text-indigo-900 text-[11px] leading-tight break-words">
+                                        <span class="font-semibold">{{ t('diff_mark_transplant') }} ({{ ch.markType }}):</span> {{ ch.newText }}
+                                    </div>
                                     <div v-else class="p-1 rounded bg-purple-50 text-purple-800 text-[11px] leading-tight break-words">
                                         <span class="font-semibold">{{ t('diff_formatting_changed') }}:</span> {{ ch.newText }}
                                     </div>
                                 </template>
                                 <template v-else-if="ch.type === 'comment'">
-                                    <div class="italic text-gray-500 text-[10px] border-l-2 border-amber-300 pl-1.5 line-clamp-2">"{{ ch.quote }}"</div>
+                                    <div v-if="ch.quote" class="italic text-gray-500 text-[10px] border-l-2 border-amber-300 pl-1.5 line-clamp-2">"{{ ch.quote }}"</div>
                                     <div class="p-1 rounded bg-amber-50 text-amber-900 text-[11px] font-medium break-words">{{ ch.text }}</div>
                                 </template>
                                 <template v-else-if="ch.type === 'reply'">
