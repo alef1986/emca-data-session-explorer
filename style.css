@@ -41,3 +41,63 @@
 .disable-timecode-Running-cursor .timecode-segment {
     cursor: text !important;
 }
+
+/* Нумерация строк транскрипта слева */
+.ProseMirror {
+    counter-reset: emca-line;
+    padding-left: 3.5rem !important;
+    position: relative;
+}
+
+.ProseMirror p {
+    counter-increment: emca-line;
+    position: relative;
+}
+
+.ProseMirror p::before {
+    content: counter(emca-line);
+    position: absolute;
+    left: -3.2rem;
+    top: 0.15em;
+    width: 2.4rem;
+    text-align: right;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 0.75rem;
+    line-height: 1.5;
+    color: #94a3b8;
+    user-select: none;
+    pointer-events: none;
+    border-right: 1px solid #e2e8f0;
+    padding-right: 0.5rem;
+}
+
+.ProseMirror p:hover::before {
+    color: #475569;
+    font-weight: 600;
+}
+
+/* Diff highlights for Merge Mode */
+.diff-del {
+    background-color: #fee2e2;
+    color: #991b1b;
+    text-decoration: line-through;
+    padding: 0.1rem 0.25rem;
+    border-radius: 2px;
+}
+
+.diff-ins {
+    background-color: #dcfce7;
+    color: #166534;
+    text-decoration: none;
+    padding: 0.1rem 0.25rem;
+    border-radius: 2px;
+    font-weight: 500;
+}
+
+.merge-changed-paragraph {
+    background-color: rgba(243, 232, 255, 0.4);
+    border-left: 3px solid #a855f7;
+    padding-left: 0.5rem;
+    margin-left: -0.5rem;
+    border-radius: 0 4px 4px 0;
+}

@@ -4,11 +4,13 @@ import Spectrogram from 'https://unpkg.com/wavesurfer.js@7/dist/plugins/spectrog
 import RegionsPlugin from 'https://unpkg.com/wavesurfer.js@7/dist/plugins/regions.esm.js';
 import { dictionary, colorSwatches } from './i18n.js';
 
-import { Editor, Mark, mergeAttributes } from 'https://esm.sh/@tiptap/core@2.2.4';
+import { Editor, Mark, Extension, mergeAttributes } from 'https://esm.sh/@tiptap/core@2.2.4';
 import StarterKit from 'https://esm.sh/@tiptap/starter-kit@2.2.4';
 import Collaboration from 'https://esm.sh/@tiptap/extension-collaboration@2.2.4?deps=yjs@13.6.18';
 import CollaborationCursor from 'https://esm.sh/@tiptap/extension-collaboration-cursor@2.2.4?deps=yjs@13.6.18';
 import TextAlign from 'https://esm.sh/@tiptap/extension-text-align@2.2.4';
+import Underline from 'https://esm.sh/@tiptap/extension-underline@2.2.4';
+import { Plugin } from 'https://esm.sh/@tiptap/pm@2.2.4/state';
 import { IndexeddbPersistence } from 'https://esm.sh/y-indexeddb@9.0.12?deps=yjs@13.6.18';
 import { Document, Packer, Paragraph, TextRun, CommentReference, CommentRangeStart, CommentRangeEnd } from 'https://esm.sh/docx@8.5.0';
 
@@ -312,7 +314,7 @@ export const normalizeJsonTranscript = (parsed) => {
     return parsed;
 };
 
-export const formatTranscriptToHtml = (segments, pauseThreshold = 1.0) => {
+export const formatTranscriptToHtml = (segments, pauseThreshold = 0.8) => {
     if (!Array.isArray(segments)) return '';
 
     const validLines = segments
@@ -329,6 +331,7 @@ export const formatTranscriptToHtml = (segments, pauseThreshold = 1.0) => {
             return {
                 start: safeStart,
                 end: safeEnd,
+                rawText: unescapedText,
                 cleanText,
                 speaker: cleanSpeaker
             };
@@ -344,6 +347,10 @@ export const formatTranscriptToHtml = (segments, pauseThreshold = 1.0) => {
     let currentParagraphSpeaker = null;
     let prevEnd = null;
     let prevSpeaker = null;
+    let prevRawText = '';
+
+    // Проверка на завершающий знак препинания (точка, !, ?, троеточие + возможные кавычки/скобки)
+    const endsWithSentenceTerminator = (str) => /([.!?…]+)["'»”)\]]*$/.test((str || '').trim());
 
     const flushParagraph = () => {
         if (currentParagraphSpans.length > 0) {
@@ -358,41 +365,39 @@ export const formatTranscriptToHtml = (segments, pauseThreshold = 1.0) => {
 
     for (let i = 0; i < validLines.length; i++) {
         const item = validLines[i];
-        const { start: safeStart, end: safeEnd, cleanText, speaker } = item;
+        const { start: safeStart, end: safeEnd, rawText, cleanText, speaker } = item;
 
         if (prevEnd === null) {
             currentParagraphSpeaker = speaker;
             currentParagraphSpans.push(`<span data-start="${safeStart}" data-end="${safeEnd}">${cleanText}</span>`);
             prevEnd = safeEnd;
             prevSpeaker = speaker;
+            prevRawText = rawText;
             continue;
         }
 
-        const isOverlap = safeStart < (prevEnd - 0.15);
+        const isSpeakerChanged = Boolean(speaker && speaker !== prevSpeaker);
+        const hasSentenceEnd = endsWithSentenceTerminator(prevRawText);
+        const gap = safeStart - prevEnd;
 
-        if (isOverlap) {
-            if (speaker !== prevSpeaker) {
-                flushParagraph();
-                currentParagraphSpeaker = speaker;
-                currentParagraphSpans.push(`<span data-start="${safeStart}" data-end="${safeEnd}">${cleanText}</span>`);
-            } else {
-                currentParagraphSpans.push(`<span data-start="${safeStart}" data-end="${safeEnd}">${cleanText}</span>`);
-            }
+        // Перенос строки делаем ТОЛЬКО при:
+        // a) смене спикера (speaker && speaker !== prevSpeaker),
+        // b) предыдущий сегмент оканчивается знаком препинания (. ! ? …) И есть пауза/граница (gap >= 0),
+        // c) экстремальной тишине/паузе (> 8.0 секунд), где пунктуация в субтитрах могла отсутствовать.
+        const shouldBreakOnSentence = hasSentenceEnd && gap >= 0;
+        const isExtremeSilence = gap > 8.0;
+
+        if (isSpeakerChanged || shouldBreakOnSentence || isExtremeSilence) {
+            flushParagraph();
+            currentParagraphSpeaker = speaker || prevSpeaker;
+            currentParagraphSpans.push(`<span data-start="${safeStart}" data-end="${safeEnd}">${cleanText}</span>`);
         } else {
-            const isSpeakerChanged = Boolean(speaker && speaker !== prevSpeaker);
-            const isPause = (safeStart - prevEnd) > pauseThreshold;
-
-            if (isSpeakerChanged || isPause) {
-                flushParagraph();
-                currentParagraphSpeaker = speaker;
-                currentParagraphSpans.push(`<span data-start="${safeStart}" data-end="${safeEnd}">${cleanText}</span>`);
-            } else {
-                currentParagraphSpans.push(`<span data-start="${safeStart}" data-end="${safeEnd}">${cleanText}</span>`);
-            }
+            currentParagraphSpans.push(`<span data-start="${safeStart}" data-end="${safeEnd}">${cleanText}</span>`);
         }
 
         prevEnd = Math.max(prevEnd, safeEnd);
-        prevSpeaker = speaker;
+        if (speaker) prevSpeaker = speaker;
+        prevRawText = rawText;
     }
 
     flushParagraph();
@@ -462,6 +467,44 @@ createApp({
         
         const serverPreset = ref('public');
         const customServerUrl = ref('wss://');
+
+        const isTextEditingEnabled = ref(false);
+        const isBoldActive = ref(false);
+        const isUnderlineActive = ref(false);
+        let isInternalFormatting = false;
+
+        const showAdvancedNetwork = ref(false);
+        const useTurnServer = ref(false);
+        const turnPreset = ref('openrelay');
+        const customTurnUrl = ref('');
+        const customTurnUsername = ref('');
+        const customTurnCredential = ref('');
+
+        const publicSignalingServers = [
+            'wss://signaling.yjs.dev',
+            'wss://y-webrtc-signaling-eu.herokuapp.com',
+            'wss://y-webrtc-signaling-us.herokuapp.com'
+        ];
+
+        const activeSignalingServers = computed(() => {
+            if (serverPreset.value === 'public') {
+                return publicSignalingServers;
+            }
+            const custom = customServerUrl.value.split(',').map(s => s.trim()).filter(Boolean);
+            return custom.length > 0 ? custom : ['wss://signaling.yjs.dev'];
+        });
+
+        // Merge Mode State
+        const mergeFiles = ref([]);
+        const isMergeDragging = ref(false);
+        const isMergeModeActive = ref(false);
+        const mergeChanges = ref([]);
+        const mergeFilter = ref('all');
+        const mergePreviewRef = ref(null);
+        const mergeSearchQuery = ref('');
+        let mergeEditorInstance = null;
+        let mergeBaselineYDoc = null;
+        let mergeBaseParagraphs = [];
         
         const isDraggingAudio = ref(false);
         const isDraggingJson = ref(false);
@@ -656,7 +699,7 @@ createApp({
 
         const isReadyToStart = computed(() => {
             if (!userName.value.trim()) return false;
-            if (sessionMode.value !== 'local') {
+            if (sessionMode.value !== 'local' && sessionMode.value !== 'merge') {
                 if (serverPreset.value === 'custom') {
                     const url = customServerUrl.value.trim();
                     if (!url.startsWith('ws://') && !url.startsWith('wss://')) return false;
@@ -666,6 +709,7 @@ createApp({
             if (sessionMode.value === 'local') return audioUrl.value !== '' && localJsonBuffer.value !== null;
             if (sessionMode.value === 'host') return audioUrl.value !== '' && localJsonBuffer.value !== null && roomName.value.trim() !== '';
             if (sessionMode.value === 'join') return audioUrl.value !== '' && roomName.value.trim() !== '';
+            if (sessionMode.value === 'merge') return mergeFiles.value.length >= 2;
             return false;
         });
 
@@ -793,48 +837,93 @@ createApp({
             }
         };
         
-        const checkServerConnection = (url) => {
+        const checkSignalingConnection = (servers) => {
+            const list = Array.isArray(servers) ? servers : [servers];
+            if (list.length === 0) return Promise.reject(new Error("Список сигнальных серверов пуст."));
+
             return new Promise((resolve, reject) => {
                 let settled = false;
-                const fail = (reason) => {
+                let pending = list.length;
+                const sockets = [];
+
+                const timeout = setTimeout(() => {
                     if (!settled) {
                         settled = true;
-                        reject(new Error(reason));
+                        sockets.forEach(s => { try { s.close(); } catch (_) {} });
+                        reject(new Error("Таймаут соединения с сигнальными серверами (5с)."));
                     }
-                };
+                }, 5000);
 
-                try {
-                    const testWs = new WebSocket(url);
-                    const timeout = setTimeout(() => {
-                        try { testWs.close(); } catch (e) {}
-                        fail("Таймаут соединения. Сервер не ответил за 5 секунд.");
-                    }, 5000);
-
-                    testWs.onopen = () => {
-                        if (!settled) {
+                list.forEach(url => {
+                    let failed = false;
+                    const markFailed = (errMsg) => {
+                        if (failed || settled) return;
+                        failed = true;
+                        pending--;
+                        if (pending <= 0 && !settled) {
                             settled = true;
                             clearTimeout(timeout);
-                            testWs.close();
-                            resolve();
+                            reject(new Error(errMsg || "Не удалось подключиться ни к одному сигнальному серверу. Проверьте сеть или используйте другой сервер."));
                         }
                     };
-                    testWs.onerror = () => {
-                        clearTimeout(timeout);
-                        fail("Сервер отклонил соединение. Проверьте правильность адреса.");
-                    };
-                    testWs.onclose = () => {
-                        clearTimeout(timeout);
-                        fail("Соединение разорвано на этапе рукопожатия.");
-                    };
-                } catch (err) {
-                    fail("Не удалось создать WebSocket (ошибка синтаксиса URL).");
-                }
+
+                    try {
+                        const ws = new WebSocket(url);
+                        sockets.push(ws);
+                        ws.onopen = () => {
+                            if (!settled) {
+                                settled = true;
+                                clearTimeout(timeout);
+                                sockets.forEach(s => { try { s.close(); } catch (_) {} });
+                                resolve(url);
+                            }
+                        };
+                        ws.onerror = () => {
+                            markFailed();
+                        };
+                        ws.onclose = () => {
+                            markFailed();
+                        };
+                    } catch (err) {
+                        markFailed(err.message);
+                    }
+                });
             });
+        };
+        const checkServerConnection = checkSignalingConnection;
+
+        const fetchAutoIceServers = async (signalingUrl) => {
+            if (!signalingUrl || typeof signalingUrl !== 'string') return null;
+            try {
+                const httpUrl = signalingUrl.trim()
+                    .replace(/^wss:\/\//i, 'https://')
+                    .replace(/^ws:\/\//i, 'http://')
+                    .replace(/\/+$/, '');
+
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 2500);
+
+                const res = await fetch(`${httpUrl}/ice-config`, {
+                    signal: controller.signal,
+                    headers: { 'Accept': 'application/json' }
+                });
+                clearTimeout(timeoutId);
+
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data && Array.isArray(data.iceServers) && data.iceServers.length > 0) {
+                        return data.iceServers;
+                    }
+                }
+            } catch (_) {
+                // Silently return null on timeout/error
+            }
+            return null;
         };
 
         const TimecodeMark = Mark.create({
             name: 'timecode',
-            inclusive: false,
+            inclusive: true,
             addAttributes() {
                 return {
                     start: {
@@ -906,6 +995,77 @@ createApp({
             renderHTML({ HTMLAttributes }) { return ['span', mergeAttributes(HTMLAttributes), 0]; }
         });
 
+        const ReadOnlyTextLock = Extension.create({
+            name: 'readOnlyTextLock',
+            addProseMirrorPlugins() {
+                return [
+                    new Plugin({
+                        filterTransaction(tr, state) {
+                            if (isTextEditingEnabled.value) return true;
+                            if (!tr.docChanged) return true;
+                            if (tr.getMeta('y-sync$') || tr.getMeta('allow-init') || isInternalFormatting) return true;
+
+                            for (const step of tr.steps) {
+                                const json = step.toJSON ? step.toJSON() : {};
+                                const type = json.stepType || step.constructor?.name;
+                                if (type === 'addMark' || type === 'removeMark' || type === 'AddMarkStep' || type === 'RemoveMarkStep') {
+                                    continue;
+                                }
+                                if (type === 'setNodeMarkup' || type === 'attr' || type === 'setDocAttribute') {
+                                    continue;
+                                }
+                                if (type === 'replaceAround' || type === 'ReplaceAroundStep') {
+                                    if (step.slice && step.slice.size === 0) continue;
+                                }
+                                return false;
+                            }
+                            return true;
+                        },
+                        props: {
+                            handleKeyDown(view, event) {
+                                if (!isTextEditingEnabled.value) {
+                                    if (event.ctrlKey || event.metaKey || event.altKey) {
+                                        return false;
+                                    }
+                                    if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End', 'PageUp', 'PageDown', 'Tab', 'Escape'].includes(event.key)) {
+                                        return false;
+                                    }
+                                    event.preventDefault();
+                                    return true;
+                                }
+                                return false;
+                            },
+                            handlePaste(view, event) {
+                                if (!isTextEditingEnabled.value) {
+                                    event.preventDefault();
+                                    return true;
+                                }
+                                return false;
+                            },
+                            handleDrop(view, event) {
+                                if (!isTextEditingEnabled.value) {
+                                    event.preventDefault();
+                                    return true;
+                                }
+                                return false;
+                            },
+                            handleTextInput(view, from, to, text) {
+                                if (!isTextEditingEnabled.value) {
+                                    return true;
+                                }
+                                return false;
+                            }
+                        }
+                    })
+                ];
+            },
+            addKeyboardShortcuts() {
+                return {
+                    'Enter': () => this.editor.commands.splitBlock({ keepMarks: true })
+                };
+            }
+        });
+
         const uint8ArrayToBase64 = (bytes) => {
             let binary = '';
             const len = bytes.byteLength;
@@ -945,6 +1105,8 @@ createApp({
                 StarterKit.configure({
                     history: false,
                 }),
+                Underline,
+                ReadOnlyTextLock,
                 TimecodeMark,
                 CommentMark,
                 TextColorMark,
@@ -993,10 +1155,14 @@ createApp({
 
             editor.on('selectionUpdate', () => {
                 currentAlignment.value = editor.isActive({ textAlign: 'justify' }) ? 'justify' : 'left';
+                isBoldActive.value = editor.isActive('bold');
+                isUnderlineActive.value = editor.isActive('underline');
                 checkSelection();
             });
             editor.on('transaction', () => {
                 currentAlignment.value = editor.isActive({ textAlign: 'justify' }) ? 'justify' : 'left';
+                isBoldActive.value = editor.isActive('bold');
+                isUnderlineActive.value = editor.isActive('underline');
                 checkSelection();
                 if (highlightActiveSegment.value) {
                     updateActiveSegmentHighlight(currentTime.value);
@@ -1099,7 +1265,12 @@ createApp({
                 } else if (jsonBuffer.comments && yComments) {
                     mergeCommentsData(yComments, jsonBuffer.comments);
                     if (jsonBuffer.content) {
-                        editor.commands.setContent(jsonBuffer.content);
+                        isInternalFormatting = true;
+                        try {
+                            editor.commands.setContent(jsonBuffer.content);
+                        } finally {
+                            isInternalFormatting = false;
+                        }
                     }
                     return; // V1 JSON fallback
                 } else {
@@ -1114,7 +1285,12 @@ createApp({
                     segmentsToRender = anonymizeTranscriptSegments(segmentsToRender);
                 }
                 const htmlContent = formatTranscriptToHtml(segmentsToRender, 1.0);
-                editor.commands.setContent(htmlContent);
+                isInternalFormatting = true;
+                try {
+                    editor.commands.setContent(htmlContent);
+                } finally {
+                    isInternalFormatting = false;
+                }
             }
 
             nextTick(() => {
@@ -1132,7 +1308,7 @@ createApp({
             try {
                 if (sessionMode.value !== 'local') {
                     isConnectingP2P.value = true;
-                    await checkServerConnection(activeSignalingServer.value);
+                    await checkSignalingConnection(activeSignalingServers.value);
                 }
 
                 // Cleanup previous instances cleanly before wiping
@@ -1173,11 +1349,88 @@ createApp({
                 // Connect to IndexedDB to start autosaving
                 idbProvider = new IndexeddbPersistence(dbKey, ydoc);
 
-                let awareness = null;
                 if (sessionMode.value !== 'local') {
-                    const awarenessModule = await import('https://esm.sh/y-protocols@1.0.6/awareness?deps=yjs@13.6.18');
-                    awareness = new awarenessModule.Awareness(ydoc);
-                    provider = { awareness };
+                    const webrtcModule = await import('https://esm.sh/y-webrtc@10.3.0?deps=yjs@13.6.18');
+                    const WebrtcProvider = webrtcModule.WebrtcProvider;
+
+                    const iceServers = [
+                        { urls: 'stun:stun.l.google.com:19302' },
+                        { urls: 'stun:stun1.l.google.com:19302' },
+                        { urls: 'stun:stun.cloudflare.com:3478' }
+                    ];
+
+                    const hasExplicitCustomTurn = useTurnServer.value && turnPreset.value === 'custom' && customTurnUrl.value.trim() !== '';
+
+                    if (useTurnServer.value) {
+                        if (turnPreset.value === 'openrelay') {
+                            iceServers.push(
+                                { urls: 'turn:openrelay.metered.ca:80', username: 'openrelay', credential: 'openrelay' },
+                                { urls: 'turn:openrelay.metered.ca:443', username: 'openrelay', credential: 'openrelay' },
+                                { urls: 'turn:openrelay.metered.ca:443?transport=tcp', username: 'openrelay', credential: 'openrelay' },
+                                { urls: 'turns:openrelay.metered.ca:443?transport=tcp', username: 'openrelay', credential: 'openrelay' }
+                            );
+                        } else if (hasExplicitCustomTurn) {
+                            const customIce = { urls: customTurnUrl.value.trim() };
+                            if (customTurnUsername.value.trim()) customIce.username = customTurnUsername.value.trim();
+                            if (customTurnCredential.value.trim()) customIce.credential = customTurnCredential.value.trim();
+                            iceServers.push(customIce);
+                        }
+                    }
+
+                    if (serverPreset.value === 'custom' && !hasExplicitCustomTurn) {
+                        const autoIce = await fetchAutoIceServers(activeSignalingServers.value[0]);
+                        if (autoIce && Array.isArray(autoIce)) {
+                            iceServers.push(...autoIce);
+                        }
+                    }
+
+                    const providerOpts = { 
+                        signaling: activeSignalingServers.value,
+                        peerOpts: { 
+                            config: { 
+                                iceServers: iceServers,
+                                iceCandidatePoolSize: 10 
+                            } 
+                        }
+                    };
+                    if (roomPassword.value.trim() !== '') providerOpts.password = roomPassword.value.trim();
+
+                    const webrtc = new WebrtcProvider('emca-p2p-' + roomName.value.trim(), ydoc, providerOpts);
+                    provider = webrtc;
+
+                    const coloredSwatches = colorSwatches.filter(s => s.hex && s.key);
+                    const randomColor = coloredSwatches.length > 0
+                        ? coloredSwatches[Math.floor(Math.random() * coloredSwatches.length)].hex
+                        : '#0ea5e9';
+
+                    webrtc.awareness.setLocalStateField('user', { 
+                        name: userName.value.trim() || 'User ' + Math.floor(Math.random() * 1000),
+                        color: randomColor
+                    });
+
+                    webrtc.on('status', ({ status }) => {
+                        if (status === 'connected') {
+                            syncError.value = false;
+                            connectionState.value = connectedPeers.value > 1 ? 'connected' : 'waiting';
+                        } else if (status === 'disconnected') {
+                            connectionState.value = 'disconnected';
+                        }
+                    });
+
+                    webrtc.on('peers', () => {
+                        updatePeersList();
+                    });
+
+                    webrtc.awareness.on('change', () => {
+                        updatePeersList();
+                    });
+                    webrtc.awareness.on('update', () => {
+                        updatePeersList();
+                    });
+
+                    updatePeersList();
+                    isConnectingP2P.value = false;
+                    connectionState.value = 'waiting';
                 }
 
                 let isSyncedHandled = false;
@@ -1237,25 +1490,8 @@ createApp({
                             localJsonBuffer.value = null;
                         }
 
-                        if (sessionMode.value !== 'local') {
-                            const webrtcModule = await import('https://esm.sh/y-webrtc@10.3.0?deps=yjs@13.6.18');
-                            const WebrtcProvider = webrtcModule.WebrtcProvider;
-
-                            const providerOpts = { 
-                                signaling: [activeSignalingServer.value],
-                                peerOpts: { config: { iceServers: [ { urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun.cloudflare.com:3478' } ] } },
-                                awareness: awareness
-                            };
-                            if (roomPassword.value.trim() !== '') providerOpts.password = roomPassword.value.trim();
-
-                            const webrtc = new WebrtcProvider('emca-p2p-' + roomName.value.trim(), ydoc, providerOpts);
-                            webrtc.awareness.setLocalStateField('user', { name: userName.value.trim() || 'User ' + Math.floor(Math.random() * 1000) });
-                            webrtc.awareness.on('change', updatePeersList);
-                            provider = webrtc;
+                        if (sessionMode.value !== 'local' && provider) {
                             updatePeersList();
-
-                            isConnectingP2P.value = false;
-                            connectionState.value = 'waiting';
                         }
                     } catch (err) {
                         isConnectingP2P.value = false;
@@ -1545,6 +1781,7 @@ createApp({
                     runOptions.shading = { fill: 'F3F4F6' };
                 }
                 if (inlineNode.marks.some(m => m.type === 'bold')) runOptions.bold = true;
+                if (inlineNode.marks.some(m => m.type === 'underline')) runOptions.underline = {};
                 if (inlineNode.marks.some(m => m.type === 'italic')) runOptions.italics = true;
                 if (inlineNode.marks.some(m => m.type === 'strike')) runOptions.strike = true;
             }
@@ -1560,9 +1797,20 @@ createApp({
                 const docxParagraphs = [];
                 const contentNodes = editorData?.content || [];
                 const referencedCommentIds = new Set();
+                let docxLineIndex = 1;
 
                 for (const node of contentNodes) {
                     const paragraphChildren = [];
+
+                    if (node.type === 'paragraph') {
+                        const lineLabel = String(docxLineIndex++).padStart(3, '0');
+                        paragraphChildren.push(new TextRun({
+                            text: `${lineLabel}  `,
+                            color: '94a3b8',
+                            font: 'Consolas'
+                        }));
+                    }
+
                     const inlineNodes = node.content || [];
 
                     for (let i = 0; i < inlineNodes.length; i++) {
@@ -1752,7 +2000,12 @@ createApp({
         const rejectProposal = () => {
             if (baselineSnapshot.value) {
                 if (editor && baselineSnapshot.value.editorJson) {
-                    editor.commands.setContent(baselineSnapshot.value.editorJson);
+                    isInternalFormatting = true;
+                    try {
+                        editor.commands.setContent(baselineSnapshot.value.editorJson);
+                    } finally {
+                        isInternalFormatting = false;
+                    }
                 }
                 if (yComments && ydoc) {
                     ydoc.transact(() => {
@@ -1777,13 +2030,18 @@ createApp({
 
         const setAlignment = (align) => {
             if (!editor) return;
-            const { from, to } = editor.state.selection;
-            if (from === to) {
-                editor.chain().focus().selectAll().setTextAlign(align).setTextSelection(from).run();
-            } else {
-                editor.chain().focus().setTextAlign(align).run();
+            isInternalFormatting = true;
+            try {
+                const { from, to } = editor.state.selection;
+                if (from === to) {
+                    editor.chain().focus().selectAll().setTextAlign(align).setTextSelection(from).run();
+                } else {
+                    editor.chain().focus().setTextAlign(align).run();
+                }
+                currentAlignment.value = align;
+            } finally {
+                isInternalFormatting = false;
             }
-            currentAlignment.value = align;
         };
 
         const initSpectrogram = () => {
@@ -1905,6 +2163,502 @@ createApp({
             }
         });
 
+        const toggleTextEditing = () => {
+            if (!isTextEditingEnabled.value) {
+                const ok = window.confirm(t.value('confirm_enable_text_edit'));
+                if (ok) {
+                    isTextEditingEnabled.value = true;
+                }
+            } else {
+                isTextEditingEnabled.value = false;
+            }
+        };
+
+        const toggleBold = () => {
+            if (editor) editor.chain().focus().toggleBold().run();
+        };
+
+        const toggleUnderline = () => {
+            if (editor) editor.chain().focus().toggleUnderline().run();
+        };
+
+        const extractNodeText = (node) => {
+            if (!node) return '';
+            if (node.text) return node.text;
+            if (Array.isArray(node.content)) {
+                return node.content.map(extractNodeText).join('');
+            }
+            return '';
+        };
+
+        const processMergeFiles = async (files) => {
+            for (const file of files) {
+                if (!file.name.endsWith('.json')) {
+                    alert(t.value('error_v2_required'));
+                    continue;
+                }
+                try {
+                    const text = await file.text();
+                    const parsed = JSON.parse(text);
+                    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed) || !parsed._yjs_state) {
+                        alert(file.name + ': ' + t.value('error_v2_required'));
+                        continue;
+                    }
+
+                    if (mergeFiles.value.length > 0) {
+                        const baseId = mergeFiles.value[0].transcriptId;
+                        if (baseId && parsed.transcriptId && baseId !== parsed.transcriptId) {
+                            const proceed = window.confirm(t.value('merge_confirm_different_transcripts', { file: file.name }));
+                            if (!proceed) continue;
+                        }
+                    }
+
+                    mergeFiles.value.push({
+                        id: 'mf_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6),
+                        file: file,
+                        name: file.name,
+                        size: (file.size / 1024).toFixed(1) + ' KB',
+                        parsed: parsed,
+                        transcriptId: parsed.transcriptId || '',
+                        commentsCount: (parsed.comments || []).length,
+                        author: (parsed.comments && parsed.comments[0]?.author) || `Peer #${mergeFiles.value.length + 1}`
+                    });
+                } catch (err) {
+                    console.error('Error reading merge file:', err);
+                    alert(file.name + ': ' + err.message);
+                }
+            }
+        };
+
+        const handleMergeFilesSelect = async (event) => {
+            const files = Array.from(event.target?.files || []);
+            if (files.length === 0) return;
+            await processMergeFiles(files);
+            event.target.value = '';
+        };
+
+        const handleMergeFilesDrop = async (event) => {
+            isMergeDragging.value = false;
+            const files = Array.from(event.dataTransfer?.files || []);
+            if (files.length === 0) return;
+            await processMergeFiles(files);
+        };
+
+        const moveMergeFile = (index, direction) => {
+            const target = index + direction;
+            if (target < 0 || target >= mergeFiles.value.length) return;
+            const item = mergeFiles.value.splice(index, 1)[0];
+            mergeFiles.value.splice(target, 0, item);
+        };
+
+        const removeMergeFile = (index) => {
+            mergeFiles.value.splice(index, 1);
+        };
+
+        const rebuildMergePreview = () => {
+            if (!mergeEditorInstance || !mergeBaseParagraphs) return;
+            try {
+                const content = mergeBaseParagraphs.map(p => JSON.parse(JSON.stringify(p)));
+                const acceptedChanges = mergeChanges.value.filter(c => c.type === 'transcript' && c.status === 'accepted');
+
+                for (const ch of acceptedChanges) {
+                    if (ch.diffType !== 'added' && ch.newNode && ch.paragraphIndex < content.length) {
+                        content[ch.paragraphIndex] = JSON.parse(JSON.stringify(ch.newNode));
+                    }
+                }
+
+                const addedChanges = acceptedChanges
+                    .filter(ch => ch.diffType === 'added' && ch.newNode)
+                    .sort((a, b) => a.paragraphIndex - b.paragraphIndex);
+
+                for (const ch of addedChanges) {
+                    if (ch.paragraphIndex <= content.length) {
+                        content.splice(ch.paragraphIndex, 0, JSON.parse(JSON.stringify(ch.newNode)));
+                    } else {
+                        content.push(JSON.parse(JSON.stringify(ch.newNode)));
+                    }
+                }
+
+                isInternalFormatting = true;
+                mergeEditorInstance.commands.setContent({ type: 'doc', content });
+                isInternalFormatting = false;
+            } catch (e) {
+                console.error('Error rebuilding merge preview:', e);
+            }
+        };
+        const applyChangeToPreview = rebuildMergePreview;
+
+        const acceptChange = (changeId) => {
+            const change = mergeChanges.value.find(c => c.id === changeId);
+            if (!change) return;
+            change.status = 'accepted';
+            rebuildMergePreview();
+        };
+
+        const rejectChange = (changeId) => {
+            const change = mergeChanges.value.find(c => c.id === changeId);
+            if (!change) return;
+            change.status = 'rejected';
+            rebuildMergePreview();
+        };
+
+        const acceptAllChanges = () => {
+            mergeChanges.value.forEach(c => {
+                c.status = 'accepted';
+            });
+            rebuildMergePreview();
+        };
+
+        const rejectAllChanges = () => {
+            mergeChanges.value.forEach(c => {
+                c.status = 'rejected';
+            });
+            rebuildMergePreview();
+        };
+
+        const detectFileChanges = (kParagraphs, kComments, fileK, fIdx, baseParagraphs, baseCommentsMap) => {
+            const changes = [];
+            const maxLen = Math.max(baseParagraphs.length, kParagraphs.length);
+            for (let pIdx = 0; pIdx < maxLen; pIdx++) {
+                const baseP = baseParagraphs[pIdx];
+                const newP = kParagraphs[pIdx];
+
+                if (!baseP && newP) {
+                    changes.push({
+                        id: `p_${fIdx}_${pIdx}`,
+                        type: 'transcript',
+                        sourceFileIndex: fIdx + 1,
+                        sourceFileName: fileK.name,
+                        sourceAuthor: fileK.author,
+                        paragraphIndex: pIdx,
+                        lineNumber: pIdx + 1,
+                        diffType: 'added',
+                        baseText: '',
+                        newText: extractNodeText(newP),
+                        baseNode: null,
+                        newNode: newP,
+                        status: 'pending'
+                    });
+                } else if (baseP && newP && JSON.stringify(baseP) !== JSON.stringify(newP)) {
+                    const baseText = extractNodeText(baseP);
+                    const newText = extractNodeText(newP);
+                    changes.push({
+                        id: `p_${fIdx}_${pIdx}`,
+                        type: 'transcript',
+                        sourceFileIndex: fIdx + 1,
+                        sourceFileName: fileK.name,
+                        sourceAuthor: fileK.author,
+                        paragraphIndex: pIdx,
+                        lineNumber: pIdx + 1,
+                        diffType: baseText !== newText ? 'text' : 'format',
+                        baseText: baseText,
+                        newText: newText,
+                        baseNode: baseP,
+                        newNode: newP,
+                        status: 'pending'
+                    });
+                }
+            }
+
+            for (const c of kComments) {
+                if (!c || !c.id) continue;
+                if (!baseCommentsMap.has(c.id)) {
+                    changes.push({
+                        id: `c_${fIdx}_${c.id}`,
+                        type: 'comment',
+                        sourceFileIndex: fIdx + 1,
+                        sourceFileName: fileK.name,
+                        sourceAuthor: c.author || fileK.author,
+                        commentId: c.id,
+                        commentObj: c,
+                        quote: c.quote || '',
+                        text: c.text || '',
+                        isNew: true,
+                        status: 'pending'
+                    });
+                } else {
+                    const baseC = baseCommentsMap.get(c.id);
+                    if (c.text && c.text !== baseC.text) {
+                        changes.push({
+                            id: `c_edit_${fIdx}_${c.id}`,
+                            type: 'comment',
+                            sourceFileIndex: fIdx + 1,
+                            sourceFileName: fileK.name,
+                            sourceAuthor: c.author || fileK.author,
+                            commentId: c.id,
+                            commentObj: c,
+                            quote: c.quote || '',
+                            baseText: baseC.text || '',
+                            text: c.text,
+                            isNew: false,
+                            status: 'pending'
+                        });
+                    }
+
+                    const baseReplies = new Set((baseC.replies || []).map(r => r.id));
+                    for (const r of (c.replies || [])) {
+                        if (r && r.id && !baseReplies.has(r.id)) {
+                            changes.push({
+                                id: `r_${fIdx}_${c.id}_${r.id}`,
+                                type: 'reply',
+                                sourceFileIndex: fIdx + 1,
+                                sourceFileName: fileK.name,
+                                sourceAuthor: r.author || fileK.author,
+                                commentId: c.id,
+                                replyId: r.id,
+                                replyObj: r,
+                                parentQuote: c.quote || '',
+                                text: r.text || '',
+                                status: 'pending'
+                            });
+                        }
+                    }
+                }
+            }
+            return changes;
+        };
+
+        const openMergeEditor = async () => {
+            if (mergeFiles.value.length < 2) {
+                alert(t.value('merge_need_min_files'));
+                return;
+            }
+
+            const yjsModule = await import('https://esm.sh/yjs@13.6.18');
+            const Y = yjsModule.default || yjsModule;
+
+            const file1 = mergeFiles.value[0];
+            mergeBaselineYDoc = new Y.Doc();
+            Y.applyUpdate(mergeBaselineYDoc, base64ToUint8Array(file1.parsed._yjs_state));
+
+            const tempEditor1 = new Editor({
+                extensions: [
+                    StarterKit.configure({ history: false }),
+                    Underline,
+                    TimecodeMark,
+                    CommentMark,
+                    TextColorMark,
+                    TextAlign.configure({ types: ['heading', 'paragraph'] }),
+                    Collaboration.configure({ document: mergeBaselineYDoc, field: 'emca-transcript' })
+                ]
+            });
+            const baseJson = tempEditor1.getJSON();
+            const baseParagraphs = baseJson?.content || [];
+            mergeBaseParagraphs = JSON.parse(JSON.stringify(baseParagraphs));
+            tempEditor1.destroy();
+
+            const baseComments = file1.parsed.comments || [];
+            const baseCommentsMap = new Map(baseComments.map(c => [c.id, c]));
+
+            let allDetectedChanges = [];
+
+            for (let fIdx = 1; fIdx < mergeFiles.value.length; fIdx++) {
+                const fileK = mergeFiles.value[fIdx];
+                const docK = new Y.Doc();
+                Y.applyUpdate(docK, base64ToUint8Array(fileK.parsed._yjs_state));
+
+                const tempEditorK = new Editor({
+                    extensions: [
+                        StarterKit.configure({ history: false }),
+                        Underline,
+                        TimecodeMark,
+                        CommentMark,
+                        TextColorMark,
+                        TextAlign.configure({ types: ['heading', 'paragraph'] }),
+                        Collaboration.configure({ document: docK, field: 'emca-transcript' })
+                    ]
+                });
+                const kJson = tempEditorK.getJSON();
+                const kParagraphs = kJson?.content || [];
+                tempEditorK.destroy();
+                docK.destroy();
+
+                const kComments = fileK.parsed.comments || [];
+                const fileChanges = detectFileChanges(kParagraphs, kComments, fileK, fIdx, baseParagraphs, baseCommentsMap);
+                allDetectedChanges = allDetectedChanges.concat(fileChanges);
+            }
+
+            mergeChanges.value = allDetectedChanges;
+            isMergeModeActive.value = true;
+
+            await nextTick();
+
+            if (mergePreviewRef.value) {
+                if (mergeEditorInstance) mergeEditorInstance.destroy();
+
+                mergeEditorInstance = new Editor({
+                    element: mergePreviewRef.value,
+                    editable: false,
+                    extensions: [
+                        StarterKit.configure({ history: false }),
+                        Underline,
+                        TimecodeMark,
+                        CommentMark,
+                        TextColorMark,
+                        TextAlign.configure({ types: ['heading', 'paragraph'] }),
+                        Collaboration.configure({ document: mergeBaselineYDoc, field: 'emca-transcript' })
+                    ],
+                    editorProps: {
+                        attributes: {
+                            class: 'prose max-w-none focus:outline-none min-h-[500px] leading-relaxed p-4'
+                        }
+                    }
+                });
+            }
+        };
+
+        const exitMergeMode = () => {
+            if (mergeEditorInstance) {
+                try { mergeEditorInstance.destroy(); } catch (_) {}
+                mergeEditorInstance = null;
+            }
+            if (mergeBaselineYDoc) {
+                try { mergeBaselineYDoc.destroy(); } catch (_) {}
+                mergeBaselineYDoc = null;
+            }
+            isMergeModeActive.value = false;
+            sessionMode.value = null;
+            mergeFiles.value = [];
+            mergeChanges.value = [];
+            mergeBaseParagraphs = [];
+        };
+
+        const backToMergeFiles = () => {
+            if (mergeEditorInstance) {
+                try { mergeEditorInstance.destroy(); } catch (_) {}
+                mergeEditorInstance = null;
+            }
+            isMergeModeActive.value = false;
+        };
+
+        const saveMergedBaseline = async () => {
+            if (mergeFiles.value.length === 0) return;
+            try {
+                const yjsModule = await import('https://esm.sh/yjs@13.6.18');
+                const Y = yjsModule.default || yjsModule;
+
+                const file1 = mergeFiles.value[0];
+                const finalDoc = new Y.Doc();
+                Y.applyUpdate(finalDoc, base64ToUint8Array(file1.parsed._yjs_state));
+
+                const finalCommentsMap = finalDoc.getMap('emca-comments');
+                const finalMeta = finalDoc.getMap('emca-meta');
+
+                const allAccepted = mergeChanges.value.length > 0 && mergeChanges.value.every(c => c.status === 'accepted');
+
+                if (allAccepted) {
+                    for (let i = 1; i < mergeFiles.value.length; i++) {
+                        const kUpdate = base64ToUint8Array(mergeFiles.value[i].parsed._yjs_state);
+                        Y.applyUpdate(finalDoc, kUpdate);
+                        if (mergeFiles.value[i].parsed.comments) {
+                            mergeCommentsData(finalCommentsMap, mergeFiles.value[i].parsed.comments);
+                        }
+                    }
+                } else {
+                    if (mergeEditorInstance) {
+                        const finalEditorJson = mergeEditorInstance.getJSON();
+                        const writerEditor = new Editor({
+                            extensions: [
+                                StarterKit.configure({ history: false }),
+                                Underline,
+                                TimecodeMark,
+                                CommentMark,
+                                TextColorMark,
+                                TextAlign.configure({ types: ['heading', 'paragraph'] }),
+                                Collaboration.configure({ document: finalDoc, field: 'emca-transcript' })
+                            ]
+                        });
+                        isInternalFormatting = true;
+                        writerEditor.commands.setContent(finalEditorJson);
+                        isInternalFormatting = false;
+                        writerEditor.destroy();
+                    }
+
+                    const acceptedCommentChanges = mergeChanges.value.filter(c => c.status === 'accepted' && (c.type === 'comment' || c.type === 'reply'));
+                    for (const ac of acceptedCommentChanges) {
+                        if (ac.type === 'comment' && ac.commentObj) {
+                            const existing = finalCommentsMap.get(ac.commentId);
+                            if (!existing) {
+                                finalCommentsMap.set(ac.commentId, ac.commentObj);
+                            } else {
+                                finalCommentsMap.set(ac.commentId, { ...existing, text: ac.text });
+                            }
+                        } else if (ac.type === 'reply' && ac.replyObj) {
+                            const parent = finalCommentsMap.get(ac.commentId);
+                            if (parent) {
+                                const replies = Array.isArray(parent.replies) ? [...parent.replies] : [];
+                                if (!replies.some(r => r.id === ac.replyId)) {
+                                    replies.push(ac.replyObj);
+                                    finalCommentsMap.set(ac.commentId, { ...parent, replies });
+                                }
+                            }
+                        }
+                    }
+                }
+
+                const newTranscriptId = 'tr_' + Date.now();
+                finalMeta.set('transcriptId', newTranscriptId);
+                finalMeta.set('version', '2.0');
+
+                const finalUpdate = Y.encodeStateAsUpdate(finalDoc);
+                const base64State = uint8ArrayToBase64(finalUpdate);
+
+                const exportedComments = [];
+                finalCommentsMap.forEach((val, key) => {
+                    if (val) exportedComments.push({ ...val, id: key });
+                });
+
+                const mergedPayload = {
+                    version: '2.0',
+                    transcriptId: newTranscriptId,
+                    exportedAt: new Date().toISOString(),
+                    audioFileName: file1.parsed.audioFileName || '',
+                    comments: exportedComments,
+                    _yjs_state: base64State
+                };
+
+                const blob = new Blob([JSON.stringify(mergedPayload, null, 2)], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                const baseName = (file1.name || 'session').replace(/\.[^/.]+$/, '');
+                a.href = url;
+                a.download = `${baseName}_merged_baseline.json`;
+                a.click();
+                URL.revokeObjectURL(url);
+                finalDoc.destroy();
+
+                alert(t.value('merge_saved_success'));
+            } catch (err) {
+                console.error('Failed to save merged baseline:', err);
+                alert('Error saving merged baseline: ' + err.message);
+            }
+        };
+
+        const filteredMergeChanges = computed(() => {
+            return mergeChanges.value.filter(item => {
+                if (mergeFilter.value === 'transcript' && item.type !== 'transcript') return false;
+                if (mergeFilter.value === 'comments' && item.type !== 'comment') return false;
+                if (mergeFilter.value === 'replies' && item.type !== 'reply') return false;
+                if (mergeSearchQuery.value && mergeSearchQuery.value.trim()) {
+                    const q = mergeSearchQuery.value.toLowerCase();
+                    const textToSearch = `${item.sourceAuthor || ''} ${item.sourceFileName || ''} ${item.baseText || ''} ${item.newText || ''} ${item.text || ''} ${item.quote || ''}`.toLowerCase();
+                    if (!textToSearch.includes(q)) return false;
+                }
+                return true;
+            });
+        });
+
+        const mergeChangesSummary = computed(() => {
+            const total = mergeChanges.value.length;
+            const accepted = mergeChanges.value.filter(c => c.status === 'accepted').length;
+            const rejected = mergeChanges.value.filter(c => c.status === 'rejected').length;
+            const pending = mergeChanges.value.filter(c => c.status === 'pending').length;
+            const transcript = mergeChanges.value.filter(c => c.type === 'transcript').length;
+            const comments = mergeChanges.value.filter(c => c.type === 'comment').length;
+            const replies = mergeChanges.value.filter(c => c.type === 'reply').length;
+            return { total, accepted, rejected, pending, transcript, comments, replies };
+        });
+
         const onWaveWheel = (e) => {
             if (!ws || !isAudioReady.value) return;
             if (e.ctrlKey || e.metaKey) {
@@ -1970,10 +2724,12 @@ createApp({
             clearTimeout(loopTimeout);
             clearTimeout(zoomRedrawTimer);
             if (editor) editor.destroy();
+            if (mergeEditorInstance) mergeEditorInstance.destroy();
             if (ws) ws.destroy(); 
             if (provider) provider.destroy();
             if (idbProvider) idbProvider.destroy();
             if (ydoc) ydoc.destroy();
+            if (mergeBaselineYDoc) mergeBaselineYDoc.destroy();
             if (audioUrl.value) URL.revokeObjectURL(audioUrl.value);
         });
 
@@ -2078,7 +2834,13 @@ createApp({
             activeProposal, baselineSnapshot, isCommentNew, isReplyNew, proposalFileInput, handleProposalFileChange,
             previewProposal, acceptProposal, rejectProposal,
             isVideoMode, showVideo, videoRef, videoZoom, videoPan, isPanningVideo,
-            togglePiP, onVideoPointerDown, onVideoPointerMove, onVideoPointerUp, resetVideoZoom
+            togglePiP, onVideoPointerDown, onVideoPointerMove, onVideoPointerUp, resetVideoZoom,
+            isTextEditingEnabled, toggleTextEditing, toggleBold, toggleUnderline, isBoldActive, isUnderlineActive,
+            showAdvancedNetwork, useTurnServer, turnPreset, customTurnUrl, customTurnUsername, customTurnCredential,
+            mergeFiles, isMergeDragging, isMergeModeActive, mergeChanges, mergeFilter, mergePreviewRef, mergeSearchQuery,
+            handleMergeFilesSelect, handleMergeFilesDrop, moveMergeFile, removeMergeFile, openMergeEditor,
+            acceptChange, rejectChange, acceptAllChanges, rejectAllChanges, exitMergeMode, backToMergeFiles,
+            saveMergedBaseline, filteredMergeChanges, mergeChangesSummary
         };
     }
 }).mount('#app');
