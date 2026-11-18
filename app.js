@@ -1,409 +1,29 @@
 import { createApp, ref, computed, watch, nextTick, onUnmounted } from 'https://unpkg.com/vue@3/dist/vue.esm-browser.prod.js';
-import WaveSurfer from 'https://unpkg.com/wavesurfer.js@7/dist/wavesurfer.esm.js';
-import Spectrogram from 'https://unpkg.com/wavesurfer.js@7/dist/plugins/spectrogram.esm.js';
-import RegionsPlugin from 'https://unpkg.com/wavesurfer.js@7/dist/plugins/regions.esm.js';
 import { dictionary, colorSwatches } from './i18n.js';
-
-import { Editor, Mark, Extension, mergeAttributes } from 'https://esm.sh/@tiptap/core@2.2.4';
-import StarterKit from 'https://esm.sh/@tiptap/starter-kit@2.2.4';
-import Collaboration from 'https://esm.sh/@tiptap/extension-collaboration@2.2.4?deps=yjs@13.6.18';
-import CollaborationCursor from 'https://esm.sh/@tiptap/extension-collaboration-cursor@2.2.4?deps=yjs@13.6.18';
-import TextAlign from 'https://esm.sh/@tiptap/extension-text-align@2.2.4';
-import Underline from 'https://esm.sh/@tiptap/extension-underline@2.2.4';
-import { Plugin } from 'https://esm.sh/@tiptap/pm@2.2.4/state';
-import { IndexeddbPersistence } from 'https://esm.sh/y-indexeddb@9.0.12?deps=yjs@13.6.18';
-import { Document, Packer, Paragraph, TextRun, CommentReference, CommentRangeStart, CommentRangeEnd } from 'https://esm.sh/docx@8.5.0';
-
-export const decodeHtmlEntities = (str) => {
-    if (!str || typeof str !== 'string') return '';
-    let res = str;
-
-    for (let i = 0; i < 2; i++) {
-        if (!res.includes('&')) break;
-
-        res = res
-            .replace(/&#(\d+);?/g, (_, dec) => {
-                const code = parseInt(dec, 10);
-                if (!isNaN(code) && code > 0 && code <= 0x10FFFF) {
-                    try { return String.fromCodePoint(code); } catch { return _; }
-                }
-                return _;
-            })
-            .replace(/&#x([0-9a-fA-F]+);?/gi, (_, hex) => {
-                const code = parseInt(hex, 16);
-                if (!isNaN(code) && code > 0 && code <= 0x10FFFF) {
-                    try { return String.fromCodePoint(code); } catch { return _; }
-                }
-                return _;
-            });
-
-        if (typeof document !== 'undefined') {
-            const txt = document.createElement('textarea');
-            txt.innerHTML = res;
-            res = txt.value;
-        } else {
-            const map = {
-                '&nbsp;': ' ', '&quot;': '"', '&apos;': "'", '&amp;': '&',
-                '&lt;': '<', '&gt;': '>', '&ccedil;': 'ç', '&Ccedil;': 'Ç',
-                '&auml;': 'ä', '&Auml;': 'Ä', '&ouml;': 'ö', '&Ouml;': 'Ö',
-                '&uuml;': 'ü', '&Uuml;': 'Ü', '&eacute;': 'é', '&Eacute;': 'É',
-                '&egrave;': 'è', '&Egrave;': 'È', '&agrave;': 'à', '&Agrave;': 'À',
-                '&ntilde;': 'ñ', '&Ntilde;': 'Ñ', '&iacute;': 'í', '&Iacute;': 'Í',
-                '&oacute;': 'ó', '&Oacute;': 'Ó', '&uacute;': 'ú', '&Uacute;': 'Ú'
-            };
-            res = res.replace(/&[a-zA-Z0-9]+;/g, m => map[m] || m);
-        }
-    }
-
-    return res.replace(/^[\uFEFF\u200B]+/, '');
-};
-
-export const escapeHtml = (str) => {
-    if (str === null || str === undefined) return '';
-    return String(str)
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#039;');
-};
-
-export const parseTimestampToSeconds = (timeStr) => {
-    if (typeof timeStr === 'number') {
-        return isNaN(timeStr) ? 0 : timeStr;
-    }
-    if (!timeStr || typeof timeStr !== 'string') {
-        return 0;
-    }
-    const clean = timeStr.trim().replace(',', '.');
-    const parts = clean.split(':');
-    if (parts.length === 3) {
-        const hours = parseFloat(parts[0]);
-        const minutes = parseFloat(parts[1]);
-        const seconds = parseFloat(parts[2]);
-        if (isNaN(hours) || isNaN(minutes) || isNaN(seconds)) return 0;
-        return hours * 3600 + minutes * 60 + seconds;
-    } else if (parts.length === 2) {
-        const minutes = parseFloat(parts[0]);
-        const seconds = parseFloat(parts[1]);
-        if (isNaN(minutes) || isNaN(seconds)) return 0;
-        return minutes * 60 + seconds;
-    } else if (parts.length === 1) {
-        const sec = parseFloat(parts[0]);
-        return isNaN(sec) ? 0 : sec;
-    }
-    return 0;
-};
-
-export const parseVttToSegments = (vttText) => {
-    if (!vttText || typeof vttText !== 'string') return [];
-
-    const segments = [];
-    const normalized = vttText.replace(/^\uFEFF/, '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
-    const blocks = normalized.split(/\n\s*\n/);
-    const timeRegex = /((?:\d{1,2}:)?\d{1,2}:\d{2}(?:[.,]\d{1,3})?)\s*-->\s*((?:\d{1,2}:)?\d{1,2}:\d{2}(?:[.,]\d{1,3})?)/;
-
-    for (const block of blocks) {
-        const lines = block.split('\n');
-        let timeIndex = -1;
-        let timeMatch = null;
-
-        for (let i = 0; i < lines.length; i++) {
-            const m = lines[i].match(timeRegex);
-            if (m) {
-                timeIndex = i;
-                timeMatch = m;
-                break;
-            }
-        }
-
-        if (timeIndex === -1 || !timeMatch) continue;
-
-        const start = parseTimestampToSeconds(timeMatch[1]);
-        const end = parseTimestampToSeconds(timeMatch[2]);
-        const rawContent = lines.slice(timeIndex + 1).join('\n').trim();
-        if (!rawContent) continue;
-
-        let speaker = null;
-        let textContent = rawContent;
-
-        const vMatch = rawContent.match(/<v\s+([^>]+)>([\s\S]*)/i);
-        if (vMatch) {
-            speaker = vMatch[1].trim();
-            textContent = vMatch[2];
-        }
-
-        textContent = textContent
-            .replace(/<\/v>/gi, ' ')
-            .replace(/<[^>]+>/g, ' ');
-
-        textContent = decodeHtmlEntities(textContent).replace(/^[⌈\uFEFF\u200B\s]+/, '').replace(/\s+/g, ' ').trim();
-        speaker = speaker ? decodeHtmlEntities(speaker).replace(/^[⌈\uFEFF\u200B\s]+/, '').replace(/\s+/g, ' ').trim() : null;
-
-        if (!textContent) continue;
-
-        segments.push({
-            start,
-            end,
-            text: textContent,
-            speaker: speaker || null
-        });
-    }
-
-    return segments;
-};
-
-export const parseSrtToSegments = (srtText) => {
-    if (!srtText || typeof srtText !== 'string') return [];
-
-    const segments = [];
-    const normalized = srtText.replace(/^\uFEFF/, '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
-    const blocks = normalized.split(/\n\s*\n/);
-    const timeRegex = /((?:\d{1,2}:)?\d{1,2}:\d{2}(?:[.,]\d{1,3})?)\s*-->\s*((?:\d{1,2}:)?\d{1,2}:\d{2}(?:[.,]\d{1,3})?)/;
-
-    for (const block of blocks) {
-        const lines = block.split('\n');
-        let timeIndex = -1;
-        let timeMatch = null;
-
-        for (let i = 0; i < lines.length; i++) {
-            const m = lines[i].match(timeRegex);
-            if (m) {
-                timeIndex = i;
-                timeMatch = m;
-                break;
-            }
-        }
-
-        if (timeIndex === -1 || !timeMatch) continue;
-
-        const start = parseTimestampToSeconds(timeMatch[1]);
-        const end = parseTimestampToSeconds(timeMatch[2]);
-        let rawContent = lines.slice(timeIndex + 1).join(' ').trim();
-        if (!rawContent) continue;
-
-        rawContent = rawContent
-            .replace(/<[^>]+>/g, ' ');
-
-        rawContent = decodeHtmlEntities(rawContent).replace(/^[⌈\uFEFF\u200B\s]+/, '').replace(/\s+/g, ' ').trim();
-
-        if (!rawContent) continue;
-
-        let speaker = null;
-        let textContent = rawContent;
-
-        const bracketMatch = textContent.match(/^\[([^\]]+)\]\s*:?\s*(.*)$/s);
-        if (bracketMatch) {
-            speaker = bracketMatch[1].trim();
-            textContent = bracketMatch[2].trim();
-        } else {
-            const colonMatch = textContent.match(/^([A-Za-zА-Яа-яЁё0-9_\s.-]{1,35}):\s+(.*)$/s);
-            if (colonMatch) {
-                speaker = colonMatch[1].trim();
-                textContent = colonMatch[2].trim();
-            }
-        }
-
-        speaker = speaker ? decodeHtmlEntities(speaker).replace(/^[⌈\uFEFF\u200B\s]+/, '').trim() : null;
-        textContent = decodeHtmlEntities(textContent).replace(/^[⌈\uFEFF\u200B\s]+/, '').trim();
-
-        if (!textContent) continue;
-
-        segments.push({
-            start,
-            end,
-            text: textContent,
-            speaker: speaker || null
-        });
-    }
-
-    return segments;
-};
-
-export const normalizeJsonTranscript = (parsed) => {
-    if (!parsed) return [];
-
-    if (typeof parsed === 'object' && !Array.isArray(parsed)) {
-        if (parsed._yjs_state || parsed.comments) {
-            return parsed;
-        }
-
-        if (Array.isArray(parsed.segments)) {
-            const result = [];
-            for (const seg of parsed.segments) {
-                if (!seg) continue;
-                const segSpeaker = seg.speaker ? decodeHtmlEntities(String(seg.speaker)).replace(/^[⌈\uFEFF\u200B\s]+/, '').trim() : null;
-                if (Array.isArray(seg.words) && seg.words.length > 0) {
-                    for (const w of seg.words) {
-                        if (!w) continue;
-                        const rawWord = (w.word !== undefined ? w.word : w.text) || '';
-                        const wordText = decodeHtmlEntities(String(rawWord)).replace(/^[⌈\uFEFF\u200B\s]+/, '').trim();
-                        if (!wordText) continue;
-                        const wSpeaker = w.speaker ? decodeHtmlEntities(String(w.speaker)).replace(/^[⌈\uFEFF\u200B\s]+/, '').trim() : null;
-                        result.push({
-                            start: parseTimestampToSeconds(w.start),
-                            end: parseTimestampToSeconds(w.end !== undefined ? w.end : w.start),
-                            text: wordText,
-                            speaker: wSpeaker || segSpeaker
-                        });
-                    }
-                } else {
-                    const rawSegText = seg.text || '';
-                    const segText = decodeHtmlEntities(String(rawSegText)).replace(/^[⌈\uFEFF\u200B\s]+/, '').trim();
-                    if (segText) {
-                        result.push({
-                            start: parseTimestampToSeconds(seg.start),
-                            end: parseTimestampToSeconds(seg.end !== undefined ? seg.end : seg.start),
-                            text: segText,
-                            speaker: segSpeaker
-                        });
-                    }
-                }
-            }
-            return result;
-        }
-
-        if (Array.isArray(parsed.chunks)) {
-            const result = [];
-            for (const chunk of parsed.chunks) {
-                if (!chunk) continue;
-                let start = 0;
-                let end = 0;
-                if (Array.isArray(chunk.timestamp)) {
-                    start = chunk.timestamp[0];
-                    end = (chunk.timestamp[1] !== undefined && chunk.timestamp[1] !== null) ? chunk.timestamp[1] : start;
-                } else {
-                    start = chunk.start;
-                    end = (chunk.end !== undefined && chunk.end !== null) ? chunk.end : start;
-                }
-                const rawChunkText = chunk.text || '';
-                const text = decodeHtmlEntities(String(rawChunkText)).replace(/^[⌈\uFEFF\u200B\s]+/, '').trim();
-                const chunkSpeaker = chunk.speaker ? decodeHtmlEntities(String(chunk.speaker)).replace(/^[⌈\uFEFF\u200B\s]+/, '').trim() : null;
-                if (text) {
-                    result.push({
-                        start: parseTimestampToSeconds(start),
-                        end: parseTimestampToSeconds(end),
-                        text: text,
-                        speaker: chunkSpeaker
-                    });
-                }
-            }
-            return result;
-        }
-    }
-
-    if (Array.isArray(parsed)) {
-        const result = [];
-        for (const line of parsed) {
-            if (!line) continue;
-            const rawLineText = (line.text !== undefined ? line.text : line.word) || '';
-            const text = decodeHtmlEntities(String(rawLineText)).replace(/^[⌈\uFEFF\u200B\s]+/, '').trim();
-            const lineSpeaker = line.speaker ? decodeHtmlEntities(String(line.speaker)).replace(/^[⌈\uFEFF\u200B\s]+/, '').trim() : null;
-            if (typeof text === 'string' && text.length > 0) {
-                result.push({
-                    start: parseTimestampToSeconds(line.start),
-                    end: parseTimestampToSeconds(line.end !== undefined ? line.end : line.start),
-                    text: text,
-                    speaker: lineSpeaker
-                });
-            }
-        }
-        return result;
-    }
-
-    return parsed;
-};
-
-export const formatTranscriptToHtml = (segments, pauseThreshold = 0.8) => {
-    if (!Array.isArray(segments)) return '';
-
-    const validLines = segments
-        .filter(seg => seg && (typeof seg.text === 'string' || typeof seg.word === 'string'))
-        .map(seg => {
-            const rawText = (seg.text !== undefined ? seg.text : seg.word) || '';
-            const start = typeof seg.start === 'number' ? seg.start : parseTimestampToSeconds(seg.start);
-            const end = typeof seg.end === 'number' ? seg.end : parseTimestampToSeconds(seg.end !== undefined ? seg.end : seg.start);
-            const safeStart = !isNaN(start) ? start : 0;
-            const safeEnd = !isNaN(end) ? end : safeStart;
-            const unescapedText = decodeHtmlEntities(rawText).replace(/^[⌈\uFEFF\u200B\s]+/, '').replace(/[\r\n]+/g, ' ').replace(/\s+/g, ' ').trim();
-            const cleanText = escapeHtml(unescapedText);
-            const cleanSpeaker = seg.speaker ? decodeHtmlEntities(String(seg.speaker)).replace(/^[⌈\uFEFF\u200B\s]+/, '').trim() : null;
-            return {
-                start: safeStart,
-                end: safeEnd,
-                rawText: unescapedText,
-                cleanText,
-                speaker: cleanSpeaker
-            };
-        })
-        .filter(item => item.cleanText.length > 0);
-
-    if (validLines.length === 0) return '';
-
-    validLines.sort((a, b) => a.start - b.start);
-
-    const paragraphs = [];
-    let currentParagraphSpans = [];
-    let currentParagraphSpeaker = null;
-    let prevEnd = null;
-    let prevSpeaker = null;
-    let prevRawText = '';
-
-    // Проверка на завершающий знак препинания (точка, !, ?, троеточие + возможные кавычки/скобки)
-    const endsWithSentenceTerminator = (str) => /([.!?…]+)["'»”)\]]*$/.test((str || '').trim());
-
-    const flushParagraph = () => {
-        if (currentParagraphSpans.length > 0) {
-            const speakerPrefix = currentParagraphSpeaker
-                ? `<strong>${escapeHtml(currentParagraphSpeaker)}:</strong> `
-                : '';
-            paragraphs.push(`<p>${speakerPrefix}${currentParagraphSpans.join(' ')}</p>`);
-            currentParagraphSpans = [];
-            currentParagraphSpeaker = null;
-        }
-    };
-
-    for (let i = 0; i < validLines.length; i++) {
-        const item = validLines[i];
-        const { start: safeStart, end: safeEnd, rawText, cleanText, speaker } = item;
-
-        if (prevEnd === null) {
-            currentParagraphSpeaker = speaker;
-            currentParagraphSpans.push(`<span data-start="${safeStart}" data-end="${safeEnd}">${cleanText}</span>`);
-            prevEnd = safeEnd;
-            prevSpeaker = speaker;
-            prevRawText = rawText;
-            continue;
-        }
-
-        const isSpeakerChanged = Boolean(speaker && speaker !== prevSpeaker);
-        const hasSentenceEnd = endsWithSentenceTerminator(prevRawText);
-        const gap = safeStart - prevEnd;
-
-        // Перенос строки делаем ТОЛЬКО при:
-        // a) смене спикера (speaker && speaker !== prevSpeaker),
-        // b) предыдущий сегмент оканчивается знаком препинания (. ! ? …) И есть пауза/граница (gap >= 0),
-        // c) экстремальной тишине/паузе (> 8.0 секунд), где пунктуация в субтитрах могла отсутствовать.
-        const shouldBreakOnSentence = hasSentenceEnd && gap >= 0;
-        const isExtremeSilence = gap > 8.0;
-
-        if (isSpeakerChanged || shouldBreakOnSentence || isExtremeSilence) {
-            flushParagraph();
-            currentParagraphSpeaker = speaker || prevSpeaker;
-            currentParagraphSpans.push(`<span data-start="${safeStart}" data-end="${safeEnd}">${cleanText}</span>`);
-        } else {
-            currentParagraphSpans.push(`<span data-start="${safeStart}" data-end="${safeEnd}">${cleanText}</span>`);
-        }
-
-        prevEnd = Math.max(prevEnd, safeEnd);
-        if (speaker) prevSpeaker = speaker;
-        prevRawText = rawText;
-    }
-
-    flushParagraph();
-
-    return paragraphs.join('');
-};
+import {
+    copyToClipboard, formatTime, formatCommentTime,
+    createCommentAtSelection, deleteCommentMarkAndData, saveCommentText,
+    addCommentReply, deleteCommentReply, mergeCommentsData
+} from './js/utils.js';
+import {
+    parseTranscriptContent, loadTranscriptIntoEditor
+} from './js/parsers.js';
+import { createEditor } from './js/editor.js';
+import { exportJson as exportJsonFile, exportWord as exportWordFile } from './js/exporter.js';
+import {
+    PUBLIC_SIGNALING_SERVERS, getPeersList, startSessionWorkflow, setupSessionMaps
+} from './js/network.js';
+import {
+    clearSegmentHighlight, updateActiveSegmentHighlight, createSpectrogramPlugin,
+    computeFrequencyLabels, getWaveScrollContainer, togglePiP as playerTogglePiP,
+    createPlayer, createWaveInteraction
+} from './js/player.js';
+import {
+    parseMergeFileInput, initMergeEditorWorkflow, rebuildMergePreview,
+    filterMergeChanges, summarizeMergeChanges, createMergePreviewEditor,
+    saveMergedBaseline as runSaveMergedBaseline, parseProposalFile,
+    previewProposalWorkflow, rejectProposalWorkflow
+} from './js/merger.js';
 
 createApp({
     setup() {
@@ -411,29 +31,28 @@ createApp({
         const t = computed(() => (key, params) => {
             let text = dictionary[locale.value]?.[key] || dictionary.ru?.[key] || key;
             if (params && typeof params === 'object') {
-                Object.entries(params).forEach(([k, v]) => {
-                    text = text.replace(new RegExp(`{${k}}`, 'g'), v);
-                });
+                Object.entries(params).forEach(([k, v]) => { text = text.replace(new RegExp(`{${k}}`, 'g'), v); });
             }
             return text;
         });
         const toggleLocale = () => { locale.value = locale.value === 'ru' ? 'en' : 'ru'; };
 
-        const sessionMode = ref(null); 
+        const sessionMode = ref(null);
         const isSessionStarted = ref(false);
         const isConnectingP2P = ref(false);
-        const connectionState = ref('disconnected'); 
+        const connectionState = ref('disconnected');
         const syncError = ref(false);
         const connectionErrorMsg = ref('');
         const highlightErrors = ref(false);
-        
+
         const audioUrl = ref('');
         const audioFileName = ref('');
         const jsonFileName = ref('');
-        
+
         const defaultName = 'User ' + Math.floor(Math.random() * 1000);
         const userName = ref(localStorage.getItem('emca_username') || defaultName);
-        
+        watch(userName, (val) => localStorage.setItem('emca_username', val));
+
         const roomName = ref('');
         const roomPassword = ref('');
         const showRoomPassword = ref(false);
@@ -445,26 +64,14 @@ createApp({
                 const text = pass 
                     ? `${t.value('room_label')}: ${roomName.value}\n${t.value('password_label')}: ${pass}`
                     : `${t.value('room_label')}: ${roomName.value}`;
-
-                if (navigator.clipboard && navigator.clipboard.writeText) {
-                    await navigator.clipboard.writeText(text);
-                } else {
-                    const textarea = document.createElement('textarea');
-                    textarea.value = text;
-                    textarea.style.position = 'fixed';
-                    textarea.style.opacity = '0';
-                    document.body.appendChild(textarea);
-                    textarea.select();
-                    document.execCommand('copy');
-                    document.body.removeChild(textarea);
-                }
+                await copyToClipboard(text);
                 isRoomCopied.value = true;
                 setTimeout(() => { isRoomCopied.value = false; }, 2000);
             } catch (err) {
                 console.error('Failed to copy room details:', err);
             }
         };
-        
+
         const serverPreset = ref('public');
         const customServerUrl = ref('wss://');
 
@@ -480,47 +87,35 @@ createApp({
         const customTurnUsername = ref('');
         const customTurnCredential = ref('');
 
-        const publicSignalingServers = [
-            'wss://signaling.yjs.dev',
-            'wss://y-webrtc-signaling-eu.herokuapp.com',
-            'wss://y-webrtc-signaling-us.herokuapp.com'
-        ];
-
         const activeSignalingServers = computed(() => {
-            if (serverPreset.value === 'public') {
-                return publicSignalingServers;
-            }
+            if (serverPreset.value === 'public') return PUBLIC_SIGNALING_SERVERS;
             const custom = customServerUrl.value.split(',').map(s => s.trim()).filter(Boolean);
             return custom.length > 0 ? custom : ['wss://signaling.yjs.dev'];
         });
 
-        // Merge Mode State
         const mergeFiles = ref([]);
         const isMergeDragging = ref(false);
         const isMergeModeActive = ref(false);
         const mergeChanges = ref([]);
         const mergeFilter = ref('all');
-        const mergePreviewRef = ref(null);
         const mergeSearchQuery = ref('');
+        const mergePreviewRef = ref(null);
         let mergeEditorInstance = null;
         let mergeBaselineYDoc = null;
-        let mergeBaseParagraphs = [];
-        
+        let mergeBaseParagraphs = null;
+
         const isDraggingAudio = ref(false);
         const isDraggingJson = ref(false);
-        const localJsonBuffer = ref(null); 
-
+        const localJsonBuffer = ref(null);
         const isTextSelected = ref(false);
         const showHighlightPicker = ref(false);
         const highlightColors = [
-            { name: 'red', hex: '#dc2626' },
-            { name: 'green', hex: '#16a34a' },
-            { name: 'blue', hex: '#2563eb' },
-            { name: 'purple', hex: '#9333ea' },
-            { name: 'pink', hex: '#db2777' },
-            { name: 'orange', hex: '#ea580c' },
+            { name: 'red', hex: '#dc2626' }, { name: 'green', hex: '#16a34a' },
+            { name: 'blue', hex: '#2563eb' }, { name: 'purple', hex: '#9333ea' },
+            { name: 'pink', hex: '#db2777' }, { name: 'orange', hex: '#ea580c' },
             { name: 'teal', hex: '#0d9488' }
         ];
+
         const activeCommentId = ref(null);
         const editingCommentId = ref(null);
         const editingCommentText = ref('');
@@ -537,11 +132,12 @@ createApp({
             if (!baselineSnapshot.value || !baselineSnapshot.value.oldCommentIds) return false;
             return !baselineSnapshot.value.oldCommentIds.has(commentId);
         };
-
         const isReplyNew = (replyId) => {
             if (!baselineSnapshot.value || !baselineSnapshot.value.oldReplyIds) return false;
             return !baselineSnapshot.value.oldReplyIds.has(replyId);
         };
+
+
 
         let ydoc = null;
         let provider = null;
@@ -555,7 +151,7 @@ createApp({
         const isAudioReady = ref(false);
         const zoomLevel = ref(10);
         const zoomStep = 25;
-        
+
         const freqMinInput = ref(0);
         const freqMaxInput = ref(500);
         const freqMin = ref(0);
@@ -576,7 +172,7 @@ createApp({
         watch(seekOnClick, (val) => localStorage.setItem('emca_seek_on_click', val));
         const anonymizeSpeakers = ref(localStorage.getItem('emca_anonymize_speakers') === 'true');
         watch(anonymizeSpeakers, (val) => localStorage.setItem('emca_anonymize_speakers', val));
-        
+
         let ws = null;
         let activeSpectrogramPlugin = null;
         let regionsPlugin = null;
@@ -586,144 +182,44 @@ createApp({
         let editor = null;
         let currentActiveSegmentRange = null;
 
-        const clearSegmentHighlight = () => {
-            if (editorRef.value) {
-                const highlighted = editorRef.value.querySelectorAll('.active-segment-highlight');
-                highlighted.forEach(el => el.classList.remove('active-segment-highlight'));
-            }
+        const clearHighlightActiveSegment = () => {
+            if (editorRef.value) clearSegmentHighlight(editorRef.value);
             currentActiveSegmentRange = null;
         };
 
-        const updateActiveSegmentHighlight = (time) => {
+        const updateSegmentHighlight = (time) => {
             if (!highlightActiveSegment.value) {
-                if (currentActiveSegmentRange !== null) {
-                    clearSegmentHighlight();
-                }
+                if (currentActiveSegmentRange !== null) clearHighlightActiveSegment();
                 return;
             }
-
             if (!editorRef.value) return;
-
-            if (currentActiveSegmentRange) {
-                if (time >= currentActiveSegmentRange.start && time <= currentActiveSegmentRange.end) {
-                    const activeElements = editorRef.value.querySelectorAll('.active-segment-highlight');
-                    if (activeElements.length > 0) {
-                        return;
-                    }
-                }
-            }
-
-            const allSpans = editorRef.value.querySelectorAll('[data-start]');
-            if (!allSpans || allSpans.length === 0) {
-                clearSegmentHighlight();
-                return;
-            }
-
-            let targetStart = null;
-            let targetEnd = null;
-            let firstMatchingEl = null;
-
-            for (let i = 0; i < allSpans.length; i++) {
-                const el = allSpans[i];
-                const s = parseFloat(el.getAttribute('data-start'));
-                const e = parseFloat(el.getAttribute('data-end'));
-                if (isNaN(s)) continue;
-                const safeEnd = !isNaN(e) ? e : s;
-
-                if (time >= s && time <= safeEnd) {
-                    targetStart = s;
-                    targetEnd = safeEnd;
-                    firstMatchingEl = el;
-                    break;
-                }
-            }
-
-            if (firstMatchingEl === null) {
-                clearSegmentHighlight();
-                return;
-            }
-
-            const oldHighlighted = editorRef.value.querySelectorAll('.active-segment-highlight');
-            oldHighlighted.forEach(el => el.classList.remove('active-segment-highlight'));
-
-            for (let i = 0; i < allSpans.length; i++) {
-                const el = allSpans[i];
-                const s = parseFloat(el.getAttribute('data-start'));
-                const e = parseFloat(el.getAttribute('data-end'));
-                const safeEnd = !isNaN(e) ? e : s;
-                if (s === targetStart && safeEnd === targetEnd) {
-                    el.classList.add('active-segment-highlight');
-                }
-            }
-
-            currentActiveSegmentRange = { start: targetStart, end: targetEnd };
-
-            if (firstMatchingEl) {
-                const container = editorRef.value.closest('.overflow-y-auto');
-                if (container) {
-                    const elRect = firstMatchingEl.getBoundingClientRect();
-                    const cRect = container.getBoundingClientRect();
-                    if (elRect.top < cRect.top || elRect.bottom > cRect.bottom) {
-                        firstMatchingEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-                    }
-                }
-            }
+            currentActiveSegmentRange = updateActiveSegmentHighlight(editorRef.value, time, currentActiveSegmentRange);
         };
 
         watch(highlightActiveSegment, (newVal) => {
             localStorage.setItem('emca_highlight_segment', newVal);
-            if (newVal) {
-                updateActiveSegmentHighlight(currentTime.value);
-            } else {
-                clearSegmentHighlight();
-            }
+            if (newVal) updateSegmentHighlight(currentTime.value);
+            else clearHighlightActiveSegment();
         });
-
-        const isDraggingWave = ref(false);
-        let pointerStartX = 0;
-        let initialScrollLeft = 0;
-        let wasDragged = false;
-        const isLoopMode = ref(false);
-        const hasActiveLoop = ref(false);
-        let loopTimeout = null;
-
-        const activeSignalingServer = computed(() => {
-            return serverPreset.value === 'public' ? 'wss://signaling.yjs.dev' : customServerUrl.value.trim();
-        });
-
-        watch(userName, (newVal) => {
-            localStorage.setItem('emca_username', newVal);
-        });
-
-        const setMode = (mode) => { sessionMode.value = mode; highlightErrors.value = false; connectionErrorMsg.value = ''; };
 
         const isReadyToStart = computed(() => {
-            if (!userName.value.trim()) return false;
-            if (sessionMode.value !== 'local' && sessionMode.value !== 'merge') {
-                if (serverPreset.value === 'custom') {
-                    const url = customServerUrl.value.trim();
-                    if (!url.startsWith('ws://') && !url.startsWith('wss://')) return false;
-                    if (url.length <= 6) return false;
-                }
+            if (!sessionMode.value) return false;
+            if (sessionMode.value === 'local') return Boolean(audioUrl.value);
+            if (sessionMode.value === 'host' || sessionMode.value === 'join') {
+                const hasServer = serverPreset.value === 'public' || (customServerUrl.value && customServerUrl.value.length > 6);
+                return Boolean(audioUrl.value && roomName.value.trim() && userName.value.trim() && hasServer);
             }
-            if (sessionMode.value === 'local') return audioUrl.value !== '' && localJsonBuffer.value !== null;
-            if (sessionMode.value === 'host') return audioUrl.value !== '' && localJsonBuffer.value !== null && roomName.value.trim() !== '';
-            if (sessionMode.value === 'join') return audioUrl.value !== '' && roomName.value.trim() !== '';
-            if (sessionMode.value === 'merge') return mergeFiles.value.length >= 2;
             return false;
         });
 
-        const freqLabels = computed(() => {
-            const min = freqMin.value;
-            const max = freqMax.value;
-            const step = (max - min) / 4;
-            const labels = [];
-            for (let i = 4; i >= 0; i--) {
-                const val = Math.round(min + step * i);
-                labels.push(val >= 1000 ? (val / 1000).toFixed(1) + ' kHz' : val + ' Hz');
-            }
-            return labels;
-        });
+        const setMode = (mode) => {
+            sessionMode.value = mode;
+            connectionErrorMsg.value = '';
+            highlightErrors.value = false;
+        };
+
+        const freqLabels = computed(() => computeFrequencyLabels(freqMin.value, freqMax.value));
+
 
         const processAudioFile = (file) => {
             if (file) {
@@ -739,61 +235,28 @@ createApp({
             if (file) processAudioFile(file);
         };
 
-        const anonymizeTranscriptSegments = (segments) => {
-            if (!Array.isArray(segments)) return segments;
-            const speakerMap = new Map();
-            let speakerCounter = 0;
-            const prefix = t.value('speaker_prefix');
-
-            for (const seg of segments) {
-                if (!seg) continue;
-                const rawSpeaker = seg.speaker != null ? String(seg.speaker).trim() : '';
-                if (!rawSpeaker) {
-                    seg.speaker = null;
-                } else {
-                    if (!speakerMap.has(rawSpeaker)) {
-                        speakerCounter++;
-                        speakerMap.set(rawSpeaker, `${prefix} ${speakerCounter}`);
-                    }
-                    seg.speaker = speakerMap.get(rawSpeaker);
-                }
-            }
-            return segments;
-        };
-
         const processJsonFile = (file) => {
             if (file) {
                 const reader = new FileReader();
                 reader.onload = (e) => {
                     try {
                         const rawContent = (e.target.result || '').replace(/^\uFEFF/, '');
-                        const nameLower = file.name.toLowerCase();
-                        let result;
-
-                        if (nameLower.endsWith('.vtt')) {
-                            result = parseVttToSegments(rawContent);
-                        } else if (nameLower.endsWith('.srt')) {
-                            result = parseSrtToSegments(rawContent);
-                        } else {
-                            const parsed = JSON.parse(rawContent);
-                            result = normalizeJsonTranscript(parsed);
-                        }
-
+                        const result = parseTranscriptContent(rawContent, file.name, {
+                            anonymize: anonymizeSpeakers.value,
+                            speakerPrefix: t.value('speaker_prefix')
+                        });
                         jsonFileName.value = file.name;
-                        if (isSessionStarted.value && ydoc) {
-                            loadInitialTranscript(result);
-                        } else {
-                            localJsonBuffer.value = result;
-                        }
+                        if (isSessionStarted.value && ydoc) loadInitialTranscript(result);
+                        else localJsonBuffer.value = result;
                     } catch (err) {
-                        console.error("Error reading transcript file:", err);
-                        alert("Error reading transcript file.");
+                        console.error('Error reading transcript file:', err);
+                        alert('Error reading transcript file.');
                     }
                 };
                 reader.readAsText(file);
             }
         };
-        
+
         const handleStartJson = (event) => processJsonFile(event.target.files[0]);
         const handleJsonDrop = (event) => {
             isDraggingJson.value = false;
@@ -803,633 +266,114 @@ createApp({
                 if (nameLower.endsWith('.json') || nameLower.endsWith('.vtt') || nameLower.endsWith('.srt')) {
                     processJsonFile(file);
                 } else {
-                    alert("Please drop a .json, .vtt, or .srt format file.");
+                    alert('Please drop a .json, .vtt, or .srt format file.');
                 }
             }
         };
 
         const updatePeersList = () => {
-            if (!provider) return;
-            const states = provider.awareness.getStates();
-            connectedPeers.value = states.size;
-            
-            const arr = [];
-            states.forEach((state, clientId) => {
-                arr.push({
-                    id: clientId,
-                    name: state.user?.name || 'Anonymous',
-                    isMe: clientId === ydoc.clientID
-                });
-            });
-            
-            arr.sort((a, b) => {
-                if (a.isMe) return -1;
-                if (b.isMe) return 1;
-                return a.name.localeCompare(b.name);
-            });
-            peersList.value = arr;
-
-            if (connectedPeers.value > 1) {
-                connectionState.value = 'connected';
-                syncError.value = false; 
-            } else {
-                connectionState.value = 'waiting';
-            }
-        };
-        
-        const checkSignalingConnection = (servers) => {
-            const list = Array.isArray(servers) ? servers : [servers];
-            if (list.length === 0) return Promise.reject(new Error("Список сигнальных серверов пуст."));
-
-            return new Promise((resolve, reject) => {
-                let settled = false;
-                let pending = list.length;
-                const sockets = [];
-
-                const timeout = setTimeout(() => {
-                    if (!settled) {
-                        settled = true;
-                        sockets.forEach(s => { try { s.close(); } catch (_) {} });
-                        reject(new Error("Таймаут соединения с сигнальными серверами (5с)."));
-                    }
-                }, 5000);
-
-                list.forEach(url => {
-                    let failed = false;
-                    const markFailed = (errMsg) => {
-                        if (failed || settled) return;
-                        failed = true;
-                        pending--;
-                        if (pending <= 0 && !settled) {
-                            settled = true;
-                            clearTimeout(timeout);
-                            reject(new Error(errMsg || "Не удалось подключиться ни к одному сигнальному серверу. Проверьте сеть или используйте другой сервер."));
-                        }
-                    };
-
-                    try {
-                        const ws = new WebSocket(url);
-                        sockets.push(ws);
-                        ws.onopen = () => {
-                            if (!settled) {
-                                settled = true;
-                                clearTimeout(timeout);
-                                sockets.forEach(s => { try { s.close(); } catch (_) {} });
-                                resolve(url);
-                            }
-                        };
-                        ws.onerror = () => {
-                            markFailed();
-                        };
-                        ws.onclose = () => {
-                            markFailed();
-                        };
-                    } catch (err) {
-                        markFailed(err.message);
-                    }
-                });
-            });
-        };
-        const checkServerConnection = checkSignalingConnection;
-
-        const fetchAutoIceServers = async (signalingUrl) => {
-            if (!signalingUrl || typeof signalingUrl !== 'string') return null;
-            try {
-                const httpUrl = signalingUrl.trim()
-                    .replace(/^wss:\/\//i, 'https://')
-                    .replace(/^ws:\/\//i, 'http://')
-                    .replace(/\/+$/, '');
-
-                const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), 2500);
-
-                const res = await fetch(`${httpUrl}/ice-config`, {
-                    signal: controller.signal,
-                    headers: { 'Accept': 'application/json' }
-                });
-                clearTimeout(timeoutId);
-
-                if (res.ok) {
-                    const data = await res.json();
-                    if (data && Array.isArray(data.iceServers) && data.iceServers.length > 0) {
-                        return data.iceServers;
-                    }
-                }
-            } catch (_) {
-                // Silently return null on timeout/error
-            }
-            return null;
-        };
-
-        const TimecodeMark = Mark.create({
-            name: 'timecode',
-            inclusive: true,
-            addAttributes() {
-                return {
-                    start: {
-                        default: null,
-                        parseHTML: element => element.getAttribute('data-start'),
-                        renderHTML: attributes => ({ 'data-start': attributes.start }),
-                    },
-                    end: {
-                        default: null,
-                        parseHTML: element => element.getAttribute('data-end'),
-                        renderHTML: attributes => ({ 'data-end': attributes.end }),
-                    }
-                }
-            },
-            parseHTML() { return [{ tag: 'span[data-start]' }] },
-            renderHTML({ HTMLAttributes }) {
-                return ['span', mergeAttributes(HTMLAttributes, { 
-                    class: 'timecode-segment hover:bg-gray-100 cursor-pointer transition-colors duration-150 rounded px-0.5' 
-                }), 0]
-            },
-        });
-
-        const CommentMark = Mark.create({
-            name: 'comment',
-            inclusive: false,
-            excludes: '',
-            addAttributes() {
-                return {
-                    commentId: {
-                        default: null,
-                        parseHTML: element => element.getAttribute('data-comment-id'),
-                        renderHTML: attributes => {
-                            if (!attributes.commentId) return {};
-                            return {
-                                'data-comment-id': attributes.commentId,
-                                class: 'emca-comment-mark'
-                            };
-                        }
-                    }
-                };
-            },
-            parseHTML() {
-                return [{ tag: 'span[data-comment-id]' }];
-            },
-            renderHTML({ HTMLAttributes }) {
-                return ['span', mergeAttributes(HTMLAttributes), 0];
-            }
-        });
-
-        const TextColorMark = Mark.create({
-            name: 'textColor',
-            inclusive: false,
-            addAttributes() {
-                return {
-                    color: {
-                        default: null,
-                        parseHTML: element => element.getAttribute('data-text-color') || element.style.color,
-                        renderHTML: attributes => {
-                            if (!attributes.color) return {};
-                            return {
-                                'data-text-color': attributes.color,
-                                style: `color: ${attributes.color}; font-weight: 500;`
-                            };
-                        }
-                    }
-                };
-            },
-            parseHTML() { return [{ tag: 'span[data-text-color]' }]; },
-            renderHTML({ HTMLAttributes }) { return ['span', mergeAttributes(HTMLAttributes), 0]; }
-        });
-
-        const ReadOnlyTextLock = Extension.create({
-            name: 'readOnlyTextLock',
-            addProseMirrorPlugins() {
-                return [
-                    new Plugin({
-                        filterTransaction(tr, state) {
-                            if (isTextEditingEnabled.value) return true;
-                            if (!tr.docChanged) return true;
-                            if (tr.getMeta('y-sync$') || tr.getMeta('allow-init') || isInternalFormatting) return true;
-
-                            for (const step of tr.steps) {
-                                const json = step.toJSON ? step.toJSON() : {};
-                                const type = json.stepType || step.constructor?.name;
-                                if (type === 'addMark' || type === 'removeMark' || type === 'AddMarkStep' || type === 'RemoveMarkStep') {
-                                    continue;
-                                }
-                                if (type === 'setNodeMarkup' || type === 'attr' || type === 'setDocAttribute') {
-                                    continue;
-                                }
-                                if (type === 'replaceAround' || type === 'ReplaceAroundStep') {
-                                    if (step.slice && step.slice.size === 0) continue;
-                                }
-                                return false;
-                            }
-                            return true;
-                        },
-                        props: {
-                            handleKeyDown(view, event) {
-                                if (!isTextEditingEnabled.value) {
-                                    if (event.ctrlKey || event.metaKey || event.altKey) {
-                                        return false;
-                                    }
-                                    if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End', 'PageUp', 'PageDown', 'Tab', 'Escape'].includes(event.key)) {
-                                        return false;
-                                    }
-                                    event.preventDefault();
-                                    return true;
-                                }
-                                return false;
-                            },
-                            handlePaste(view, event) {
-                                if (!isTextEditingEnabled.value) {
-                                    event.preventDefault();
-                                    return true;
-                                }
-                                return false;
-                            },
-                            handleDrop(view, event) {
-                                if (!isTextEditingEnabled.value) {
-                                    event.preventDefault();
-                                    return true;
-                                }
-                                return false;
-                            },
-                            handleTextInput(view, from, to, text) {
-                                if (!isTextEditingEnabled.value) {
-                                    return true;
-                                }
-                                return false;
-                            }
-                        }
-                    })
-                ];
-            },
-            addKeyboardShortcuts() {
-                return {
-                    'Enter': () => this.editor.commands.splitBlock({ keepMarks: true })
-                };
-            }
-        });
-
-        const uint8ArrayToBase64 = (bytes) => {
-            let binary = '';
-            const len = bytes.byteLength;
-            for (let i = 0; i < len; i++) {
-                binary += String.fromCharCode(bytes[i]);
-            }
-            return window.btoa(binary);
-        };
-
-        const base64ToUint8Array = (base64) => {
-            const binary = window.atob(base64);
-            const len = binary.length;
-            const bytes = new Uint8Array(len);
-            for (let i = 0; i < len; i++) {
-                bytes[i] = binary.charCodeAt(i);
-            }
-            return bytes;
-        };
-
-        const updateCommentsFromYjs = () => {
-            if (!yComments) {
-                commentsList.value = [];
-                return;
-            }
-            const list = [];
-            yComments.forEach((val, key) => {
-                if (val) {
-                    list.push({ ...val, id: key });
-                }
-            });
-            list.sort((a, b) => new Date(a.createdAt || 0) - new Date(b.createdAt || 0));
-            commentsList.value = list;
+            const { count, list } = getPeersList(provider, ydoc);
+            connectedPeers.value = count;
+            peersList.value = list;
+            connectionState.value = connectedPeers.value > 1 ? 'connected' : 'waiting';
+            if (connectedPeers.value > 1) syncError.value = false;
         };
 
         const initRichTextEditor = () => {
-            const extensions = [
-                StarterKit.configure({
-                    history: false,
-                }),
-                Underline,
-                ReadOnlyTextLock,
-                TimecodeMark,
-                CommentMark,
-                TextColorMark,
-                TextAlign.configure({
-                    types: ['heading', 'paragraph'],
-                    alignments: ['left', 'justify'],
-                    defaultAlignment: 'left',
-                }),
-                Collaboration.configure({ document: ydoc, field: 'emca-transcript' })
-            ];
-
-            if (sessionMode.value !== 'local' && provider) {
-                const coloredSwatches = colorSwatches.filter(s => s.hex && s.key);
-                const randomColor = coloredSwatches.length > 0
-                    ? coloredSwatches[Math.floor(Math.random() * coloredSwatches.length)].hex
-                    : (colorSwatches[0]?.hex || '#0ea5e9');
-
-                extensions.push(CollaborationCursor.configure({
-                    provider: provider,
-                    user: {
-                        name: userName.value,
-                        color: randomColor
-                    }
-                }));
-            }
-
-            editor = new Editor({
-                element: editorRef.value,
-                extensions: extensions,
-                editorProps: {
-                    attributes: {
-                        class: 'prose max-w-none focus:outline-none min-h-[500px] leading-relaxed p-4',
-                        spellcheck: 'false',
-                    },
-                },
-            });
+            if (editor) editor.destroy();
+            const coloredSwatches = colorSwatches.filter(s => s.hex && s.key);
+            const randomColor = coloredSwatches.length > 0
+                ? coloredSwatches[Math.floor(Math.random() * coloredSwatches.length)].hex
+                : (colorSwatches[0]?.hex || '#0ea5e9');
 
             const checkSelection = () => {
-                if (!editor) {
-                    isTextSelected.value = false;
-                    return;
-                }
+                if (!editor) { isTextSelected.value = false; return; }
                 const { from, to, empty } = editor.state.selection;
                 isTextSelected.value = !empty && (to - from > 0);
             };
 
-            editor.on('selectionUpdate', () => {
+            const updateFormattingState = () => {
                 currentAlignment.value = editor.isActive({ textAlign: 'justify' }) ? 'justify' : 'left';
                 isBoldActive.value = editor.isActive('bold');
                 isUnderlineActive.value = editor.isActive('underline');
                 checkSelection();
-            });
-            editor.on('transaction', () => {
-                currentAlignment.value = editor.isActive({ textAlign: 'justify' }) ? 'justify' : 'left';
-                isBoldActive.value = editor.isActive('bold');
-                isUnderlineActive.value = editor.isActive('underline');
-                checkSelection();
-                if (highlightActiveSegment.value) {
-                    updateActiveSegmentHighlight(currentTime.value);
-                }
-            });
+            };
 
-            editor.view.dom.addEventListener('click', (e) => {
-                const timecodeSpan = e.target.closest('[data-start]');
-                if (timecodeSpan) {
-                    const startTime = parseFloat(timecodeSpan.getAttribute('data-start'));
-                    if (!isNaN(startTime) && seekOnClick.value && editor.state.selection.empty) {
-                        jumpTo(startTime);
-                    }
-                }
-
-                const commentSpan = e.target.closest('[data-comment-id]');
-                if (commentSpan) {
-                    const cId = commentSpan.getAttribute('data-comment-id');
-                    if (cId) {
-                        selectComment(cId);
-                    }
-                }
+            editor = createEditor({
+                element: editorRef.value,
+                ydoc,
+                provider,
+                sessionMode: sessionMode.value,
+                userName,
+                userColor: randomColor,
+                isEditingEnabled: () => isTextEditingEnabled.value,
+                isInternalFormatting: () => isInternalFormatting,
+                onSelectionUpdate: () => updateFormattingState(),
+                onTransaction: () => {
+                    updateFormattingState();
+                    if (highlightActiveSegment.value) updateSegmentHighlight(currentTime.value);
+                },
+                onTimecodeClick: (startTime) => {
+                    if (seekOnClick.value && editor.state.selection.empty) jumpTo(startTime);
+                },
+                onCommentClick: (commentId) => selectComment(commentId)
             });
         };
 
-        const mergeCommentsData = (yCommentsMap, incomingCommentsArray) => {
-            if (!yCommentsMap || !Array.isArray(incomingCommentsArray)) return;
-
-            incomingCommentsArray.forEach(incoming => {
-                if (!incoming || !incoming.id) return;
-                const existing = yCommentsMap.get(incoming.id);
-
-                if (!existing) {
-                    yCommentsMap.set(incoming.id, incoming);
-                } else {
-                    const existingReplies = Array.isArray(existing.replies) ? existing.replies : [];
-                    const incomingReplies = Array.isArray(incoming.replies) ? incoming.replies : [];
-
-                    const repliesMap = new Map();
-                    existingReplies.forEach(r => {
-                        if (r && r.id) repliesMap.set(r.id, r);
-                    });
-                    incomingReplies.forEach(r => {
-                        if (!r || !r.id) return;
-                        if (!repliesMap.has(r.id)) {
-                            repliesMap.set(r.id, r);
-                        } else {
-                            const prev = repliesMap.get(r.id);
-                            const prevTime = new Date(prev.updatedAt || prev.createdAt || 0).getTime();
-                            const currTime = new Date(r.updatedAt || r.createdAt || 0).getTime();
-                            if (currTime >= prevTime) {
-                                repliesMap.set(r.id, { ...prev, ...r });
-                            }
-                        }
-                    });
-
-                    const mergedReplies = Array.from(repliesMap.values()).sort(
-                        (a, b) => new Date(a.createdAt || 0) - new Date(b.createdAt || 0)
-                    );
-
-                    const existingTime = new Date(existing.updatedAt || existing.createdAt || 0).getTime();
-                    const incomingTime = new Date(incoming.updatedAt || incoming.createdAt || 0).getTime();
-                    const useIncoming = incomingTime >= existingTime;
-
-                    const mergedComment = {
-                        ...existing,
-                        ...incoming,
-                        text: useIncoming ? (incoming.text !== undefined ? incoming.text : existing.text) : existing.text,
-                        updatedAt: useIncoming ? (incoming.updatedAt || existing.updatedAt) : existing.updatedAt,
-                        replies: mergedReplies
-                    };
-
-                    yCommentsMap.set(incoming.id, mergedComment);
-                }
+        const loadInitialTranscript = (jsonBuffer) => {
+            return loadTranscriptIntoEditor({
+                editor,
+                ydoc,
+                yMeta,
+                yComments,
+                jsonBuffer,
+                anonymize: anonymizeSpeakers.value,
+                speakerPrefix: t.value('speaker_prefix'),
+                setInternalFormatting: (val) => { isInternalFormatting = val; }
             });
         };
 
-        const loadInitialTranscript = async (jsonBuffer) => {
-            if (!editor || !ydoc) return;
-            if (yMeta && !yMeta.get('transcriptId')) {
-                const tid = (jsonBuffer && typeof jsonBuffer === 'object' && !Array.isArray(jsonBuffer) && jsonBuffer.transcriptId)
-                    ? jsonBuffer.transcriptId
-                    : ('tr_' + Date.now() + '_' + Math.random().toString(36).substring(2, 8));
-                yMeta.set('transcriptId', tid);
-            }
-            
-            let segmentsToRender = null;
-
-            if (jsonBuffer && typeof jsonBuffer === 'object' && !Array.isArray(jsonBuffer)) {
-                if (jsonBuffer._yjs_state) {
-                    try {
-                        const yjsModule = await import('https://esm.sh/yjs@13.6.18');
-                        const Y = yjsModule.default || yjsModule;
-                        const update = base64ToUint8Array(jsonBuffer._yjs_state);
-                        Y.applyUpdate(ydoc, update);
-                    } catch (e) {
-                        console.error('Error applying CRDT update:', e);
-                    }
-                    return; // CRDT applies immediately, no HTML formatting needed
-                } else if (jsonBuffer.comments && yComments) {
-                    mergeCommentsData(yComments, jsonBuffer.comments);
-                    if (jsonBuffer.content) {
-                        isInternalFormatting = true;
-                        try {
-                            editor.commands.setContent(jsonBuffer.content);
-                        } finally {
-                            isInternalFormatting = false;
-                        }
-                    }
-                    return; // V1 JSON fallback
-                } else {
-                    segmentsToRender = normalizeJsonTranscript(jsonBuffer);
-                }
-            } else if (Array.isArray(jsonBuffer)) {
-                segmentsToRender = jsonBuffer;
-            }
-
-            if (segmentsToRender) {
-                if (anonymizeSpeakers.value) {
-                    segmentsToRender = anonymizeTranscriptSegments(segmentsToRender);
-                }
-                const htmlContent = formatTranscriptToHtml(segmentsToRender, 1.0);
-                isInternalFormatting = true;
-                try {
-                    editor.commands.setContent(htmlContent);
-                } finally {
-                    isInternalFormatting = false;
-                }
-            }
-
-            nextTick(() => {
-                if (highlightActiveSegment.value) {
-                    updateActiveSegmentHighlight(currentTime.value);
-                }
-            });
-        };
 
         const startSession = async () => {
-            highlightErrors.value = true;
-            if (!isReadyToStart.value) return;
+            if (!isReadyToStart.value) { highlightErrors.value = true; return; }
             connectionErrorMsg.value = '';
+            isConnectingP2P.value = true;
 
             try {
-                if (sessionMode.value !== 'local') {
-                    isConnectingP2P.value = true;
-                    await checkSignalingConnection(activeSignalingServers.value);
-                }
-
-                // Cleanup previous instances cleanly before wiping
-                if (idbProvider) { try { idbProvider.destroy(); } catch (e) {} idbProvider = null; }
-                if (provider) { try { provider.destroy(); } catch (e) {} provider = null; }
-                if (ydoc) { try { ydoc.destroy(); } catch (e) {} ydoc = null; }
-
-                const yjsModule = await import('https://esm.sh/yjs@13.6.18');
-                const Y = yjsModule.default || yjsModule;
-                const dbKey = 'emca-session-' + (sessionMode.value === 'local' ? audioFileName.value : roomName.value);
-
-                // Check if we are restoring a full v2.0 JSON session
-                let isJsonRestore = (localJsonBuffer.value && !Array.isArray(localJsonBuffer.value) && localJsonBuffer.value._yjs_state);
-                
-                if (isJsonRestore) {
-                    const overwrite = window.confirm(t.value('confirm_overwrite_autosave'));
-                    if (!overwrite) {
-                        // Keep autosave, discard the dropped JSON file
-                        localJsonBuffer.value = null;
-                        isJsonRestore = false;
-                    } else {
-                        // IMPORTANT: Wipe the database completely BEFORE initializing the real ydoc 
-                        // to prevent CRDT tombstone logical clock conflicts.
-                        const tempIdb = new IndexeddbPersistence(dbKey, new Y.Doc());
-                        await tempIdb.clearData();
-                        tempIdb.destroy();
-                    }
-                }
-
-                ydoc = new Y.Doc();
-
-                if (isJsonRestore) {
-                    // Apply raw state directly from the file to the clean ydoc
-                    Y.applyUpdate(ydoc, base64ToUint8Array(localJsonBuffer.value._yjs_state));
-                    localJsonBuffer.value = null; // Successfully applied, discard buffer
-                }
-
-                // Connect to IndexedDB to start autosaving
-                idbProvider = new IndexeddbPersistence(dbKey, ydoc);
-
-                if (sessionMode.value !== 'local') {
-                    const webrtcModule = await import('https://esm.sh/y-webrtc@10.3.0?deps=yjs@13.6.18');
-                    const WebrtcProvider = webrtcModule.WebrtcProvider;
-
-                    const iceServers = [
-                        { urls: 'stun:stun.l.google.com:19302' },
-                        { urls: 'stun:stun1.l.google.com:19302' },
-                        { urls: 'stun:stun.cloudflare.com:3478' }
-                    ];
-
-                    const hasExplicitCustomTurn = useTurnServer.value && turnPreset.value === 'custom' && customTurnUrl.value.trim() !== '';
-
-                    if (useTurnServer.value) {
-                        if (turnPreset.value === 'openrelay') {
-                            iceServers.push(
-                                { urls: 'turn:openrelay.metered.ca:80', username: 'openrelay', credential: 'openrelay' },
-                                { urls: 'turn:openrelay.metered.ca:443', username: 'openrelay', credential: 'openrelay' },
-                                { urls: 'turn:openrelay.metered.ca:443?transport=tcp', username: 'openrelay', credential: 'openrelay' },
-                                { urls: 'turns:openrelay.metered.ca:443?transport=tcp', username: 'openrelay', credential: 'openrelay' }
-                            );
-                        } else if (hasExplicitCustomTurn) {
-                            const customIce = { urls: customTurnUrl.value.trim() };
-                            if (customTurnUsername.value.trim()) customIce.username = customTurnUsername.value.trim();
-                            if (customTurnCredential.value.trim()) customIce.credential = customTurnCredential.value.trim();
-                            iceServers.push(customIce);
-                        }
-                    }
-
-                    if (serverPreset.value === 'custom' && !hasExplicitCustomTurn) {
-                        const autoIce = await fetchAutoIceServers(activeSignalingServers.value[0]);
-                        if (autoIce && Array.isArray(autoIce)) {
-                            iceServers.push(...autoIce);
-                        }
-                    }
-
-                    const providerOpts = { 
-                        signaling: activeSignalingServers.value,
-                        peerOpts: { 
-                            config: { 
-                                iceServers: iceServers,
-                                iceCandidatePoolSize: 10 
-                            } 
-                        }
-                    };
-                    if (roomPassword.value.trim() !== '') providerOpts.password = roomPassword.value.trim();
-
-                    const webrtc = new WebrtcProvider('emca-p2p-' + roomName.value.trim(), ydoc, providerOpts);
-                    provider = webrtc;
-
-                    const coloredSwatches = colorSwatches.filter(s => s.hex && s.key);
-                    const randomColor = coloredSwatches.length > 0
-                        ? coloredSwatches[Math.floor(Math.random() * coloredSwatches.length)].hex
-                        : '#0ea5e9';
-
-                    webrtc.awareness.setLocalStateField('user', { 
-                        name: userName.value.trim() || 'User ' + Math.floor(Math.random() * 1000),
-                        color: randomColor
-                    });
-
-                    webrtc.on('status', ({ status }) => {
+                const sessionRes = await startSessionWorkflow({
+                    sessionMode: sessionMode.value,
+                    roomName: roomName.value,
+                    roomPassword: roomPassword.value,
+                    serverPreset: serverPreset.value,
+                    customServerUrl: customServerUrl.value,
+                    activeSignalingServers: activeSignalingServers.value,
+                    useTurnServer: useTurnServer.value,
+                    turnPreset: turnPreset.value,
+                    customTurnUrl: customTurnUrl.value,
+                    customTurnUsername: customTurnUsername.value,
+                    customTurnCredential: customTurnCredential.value,
+                    userName: userName.value,
+                    userColor: '#0ea5e9',
+                    localJsonBuffer: localJsonBuffer.value,
+                    onStatus: ({ status }) => {
                         if (status === 'connected') {
                             syncError.value = false;
                             connectionState.value = connectedPeers.value > 1 ? 'connected' : 'waiting';
                         } else if (status === 'disconnected') {
                             connectionState.value = 'disconnected';
                         }
-                    });
+                    },
+                    onPeers: () => updatePeersList(),
+                    onAwarenessChange: () => updatePeersList()
+                });
 
-                    webrtc.on('peers', () => {
-                        updatePeersList();
-                    });
+                ydoc = sessionRes.ydoc;
+                provider = sessionRes.provider;
+                idbProvider = sessionRes.idbProvider;
 
-                    webrtc.awareness.on('change', () => {
-                        updatePeersList();
-                    });
-                    webrtc.awareness.on('update', () => {
-                        updatePeersList();
-                    });
-
+                isConnectingP2P.value = false;
+                if (provider) {
                     updatePeersList();
-                    isConnectingP2P.value = false;
                     connectionState.value = 'waiting';
                 }
 
@@ -1439,133 +383,97 @@ createApp({
                     isSyncedHandled = true;
 
                     try {
-                        yComments = ydoc.getMap('emca-comments');
-                        yMeta = ydoc.getMap('emca-meta');
-                        yProposals = ydoc.getMap('emca-proposals');
+                        const maps = setupSessionMaps({
+                            ydoc,
+                            onCommentsChange: () => updateCommentsFromYjs(),
+                            onProposalsChange: () => {
+                                const act = yProposals.get('active');
+                                activeProposal.value = act || null;
+                                if (!act && baselineSnapshot.value) baselineSnapshot.value = null;
+                            }
+                        });
+                        yComments = maps.yComments;
+                        yMeta = maps.yMeta;
+                        yProposals = maps.yProposals;
 
                         baselineSnapshot.value = null;
-                        activeProposal.value = null;
-
-                        yComments.observeDeep(() => { updateCommentsFromYjs(); });
-                        updateCommentsFromYjs();
-
-                        yProposals.observe(() => {
-                            const act = yProposals.get('active');
-                            activeProposal.value = act || null;
-                            if (!act && baselineSnapshot.value) { baselineSnapshot.value = null; }
-                        });
                         activeProposal.value = yProposals.get('active') || null;
+                        updateCommentsFromYjs();
 
                         isSessionStarted.value = true;
                         await nextTick();
                         await initPlayer();
                         initRichTextEditor();
 
-                        // Process non-JSON (VTT/SRT) text imports, appending as standard CRDT insertions
                         if (localJsonBuffer.value) {
-                            const transcriptFrag = ydoc.getXmlFragment('emca-transcript');
-                            const hasExistingData = transcriptFrag.length > 0;
-                            let shouldLoadNew = true;
-
-                            if (hasExistingData) {
-                                const overwrite = window.confirm(t.value('confirm_overwrite_autosave'));
-                                if (!overwrite) {
-                                    shouldLoadNew = false;
-                                } else {
-                                    ydoc.transact(() => {
-                                        if (transcriptFrag.length > 0) transcriptFrag.delete(0, transcriptFrag.length);
-                                        const currentComments = Array.from(yComments.keys());
-                                        for (const key of currentComments) yComments.delete(key);
-                                        const currentMeta = Array.from(yMeta.keys());
-                                        for (const key of currentMeta) yMeta.delete(key);
-                                        const currentProposals = Array.from(yProposals.keys());
-                                        for (const key of currentProposals) yProposals.delete(key);
-                                    });
+                            if (localJsonBuffer.value._yjs_state) {
+                                if (yMeta && !yMeta.get('transcriptId')) {
+                                    yMeta.set('transcriptId', localJsonBuffer.value.transcriptId || ('tr_' + Date.now()));
                                 }
+                                if (yComments && yComments.size === 0 && Array.isArray(localJsonBuffer.value.comments)) {
+                                    mergeCommentsData(yComments, localJsonBuffer.value.comments);
+                                }
+                                localJsonBuffer.value = null;
+                            } else {
+                                const transcriptFrag = ydoc.getXmlFragment('emca-transcript');
+                                let shouldLoadNew = true;
+                                if (transcriptFrag.length > 0) {
+                                    shouldLoadNew = window.confirm(t.value('confirm_overwrite_autosave'));
+                                    if (shouldLoadNew) {
+                                        ydoc.transact(() => { transcriptFrag.delete(0, transcriptFrag.length); });
+                                    }
+                                }
+                                if (shouldLoadNew) loadInitialTranscript(localJsonBuffer.value);
+                                localJsonBuffer.value = null;
                             }
-
-                            if (shouldLoadNew) {
-                                await loadInitialTranscript(localJsonBuffer.value);
-                            }
-                            localJsonBuffer.value = null;
                         }
 
-                        if (sessionMode.value !== 'local' && provider) {
-                            updatePeersList();
-                        }
+                        initSpectrogram();
                     } catch (err) {
-                        isConnectingP2P.value = false;
-                        connectionErrorMsg.value = err.message;
-                        console.error('Session initialization error:', err);
+                        console.error('Initialization error:', err);
                     }
                 };
 
                 idbProvider.on('synced', handleSynced);
-                if (idbProvider.synced) {
-                    handleSynced();
-                }
-            } catch (e) {
+                setTimeout(() => { if (!isSyncedHandled) handleSynced(); }, 1500);
+
+            } catch (err) {
+                console.error('Failed to start session:', err);
                 isConnectingP2P.value = false;
-                connectionErrorMsg.value = e.message;
+                connectionState.value = 'error';
+                connectionErrorMsg.value = err.message || 'Не удалось подключиться к сигнальному серверу.';
             }
+        };
+
+
+        const updateCommentsFromYjs = () => {
+            if (!yComments) return;
+            const arr = [];
+            yComments.forEach((val, key) => { if (val) arr.push({ ...val, id: key }); });
+            arr.sort((a, b) => new Date(a.createdAt || 0) - new Date(b.createdAt || 0));
+            commentsList.value = arr;
         };
 
         const toggleHighlightPicker = () => {
-            if (isTextSelected.value) {
-                showHighlightPicker.value = !showHighlightPicker.value;
-            }
+            if (isTextSelected.value) showHighlightPicker.value = !showHighlightPicker.value;
         };
-
         const applyHighlight = (colorHex) => {
             if (editor) editor.chain().focus().setMark('textColor', { color: colorHex }).run();
             showHighlightPicker.value = false;
         };
-
         const clearHighlight = () => {
             if (editor) editor.chain().focus().unsetMark('textColor').run();
             showHighlightPicker.value = false;
         };
 
-        const formatCommentTime = (isoString) => {
-            if (!isoString) return '';
-            try {
-                const d = new Date(isoString);
-                return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) + ' ' + d.toLocaleDateString([], { day: 'numeric', month: 'short' });
-            } catch {
-                return '';
-            }
-        };
-
         const addCommentAtSelection = () => {
-            if (!editor || !isTextSelected.value) return;
-            const { from, to, empty } = editor.state.selection;
-            if (empty || from >= to) return;
-
-            const quote = editor.state.doc.textBetween(from, to, ' ').trim().slice(0, 150);
-            const commentId = 'c_' + Date.now() + '_' + Math.random().toString(36).substring(2, 8);
-
-            editor.chain().focus().setMark('comment', { commentId }).run();
-
-            const newComment = {
-                id: commentId,
-                author: userName.value.trim() || 'Anonymous',
-                text: '',
-                quote: quote,
-                createdAt: new Date().toISOString(),
-                updatedAt: new Date().toISOString(),
-                replies: []
-            };
-
-            if (yComments) {
-                yComments.set(commentId, newComment);
-            }
-
-            activeCommentId.value = commentId;
-            editingCommentId.value = commentId;
+            const newComment = createCommentAtSelection({ editor, userName: userName.value, yComments });
+            if (!newComment) return;
+            activeCommentId.value = newComment.id;
+            editingCommentId.value = newComment.id;
             editingCommentText.value = '';
-
             nextTick(() => {
-                const card = document.getElementById('comment-card-' + commentId);
+                const card = document.getElementById('comment-card-' + newComment.id);
                 if (card) {
                     card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
                     const textarea = card.querySelector('textarea');
@@ -1578,9 +486,7 @@ createApp({
             activeCommentId.value = commentId;
             nextTick(() => {
                 const card = document.getElementById('comment-card-' + commentId);
-                if (card) {
-                    card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-                }
+                if (card) card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
             });
         };
 
@@ -1591,9 +497,7 @@ createApp({
             if (markEl) {
                 markEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
                 markEl.classList.add('emca-comment-pulse');
-                setTimeout(() => {
-                    markEl.classList.remove('emca-comment-pulse');
-                }, 1800);
+                setTimeout(() => { markEl.classList.remove('emca-comment-pulse'); }, 1800);
             }
         };
 
@@ -1610,21 +514,7 @@ createApp({
         };
 
         const saveCommentEdit = (commentId) => {
-            if (!yComments) return;
-            const existing = yComments.get(commentId);
-            if (!existing) return;
-
-            const trimmed = editingCommentText.value.trim();
-            if (!trimmed && (!existing.replies || existing.replies.length === 0)) {
-                deleteComment(commentId);
-                return;
-            }
-
-            yComments.set(commentId, {
-                ...existing,
-                text: trimmed,
-                updatedAt: new Date().toISOString()
-            });
+            saveCommentText({ yComments, commentId, text: editingCommentText.value, onDelete: deleteComment });
             editingCommentId.value = null;
             editingCommentText.value = '';
         };
@@ -1639,26 +529,7 @@ createApp({
         };
 
         const deleteComment = (commentId) => {
-            if (editor) {
-                editor.commands.command(({ tr, dispatch }) => {
-                    if (dispatch) {
-                        tr.doc.descendants((node, pos) => {
-                            if (!node.marks || node.marks.length === 0) return;
-                            node.marks.forEach(mark => {
-                                if (mark.type.name === 'comment' && mark.attrs.commentId === commentId) {
-                                    tr.removeMark(pos, pos + node.nodeSize, mark);
-                                }
-                            });
-                        });
-                    }
-                    return true;
-                });
-            }
-
-            if (yComments) {
-                yComments.delete(commentId);
-            }
-
+            deleteCommentMarkAndData({ editor, yComments, commentId });
             if (activeCommentId.value === commentId) activeCommentId.value = null;
             if (editingCommentId.value === commentId) {
                 editingCommentId.value = null;
@@ -1667,296 +538,53 @@ createApp({
         };
 
         const addReply = (commentId) => {
-            const text = (replyInputText.value[commentId] || '').trim();
-            if (!text || !yComments) return;
-
-            const existing = yComments.get(commentId);
-            if (!existing) return;
-
-            const replies = Array.isArray(existing.replies) ? [...existing.replies] : [];
-            replies.push({
-                id: 'r_' + Date.now() + '_' + Math.random().toString(36).substring(2, 8),
-                author: userName.value.trim() || 'Anonymous',
-                text: text,
-                createdAt: new Date().toISOString()
-            });
-
-            yComments.set(commentId, {
-                ...existing,
-                replies: replies,
-                updatedAt: new Date().toISOString()
-            });
-
+            addCommentReply({ yComments, commentId, author: userName.value, text: replyInputText.value[commentId] });
             replyInputText.value[commentId] = '';
         };
 
         const deleteReply = (commentId, replyId) => {
-            if (!yComments) return;
-            const existing = yComments.get(commentId);
-            if (!existing || !Array.isArray(existing.replies)) return;
+            deleteCommentReply({ yComments, commentId, replyId });
+        };
 
-            const replies = existing.replies.filter(r => r.id !== replyId);
-            yComments.set(commentId, {
-                ...existing,
-                replies: replies,
-                updatedAt: new Date().toISOString()
+        // --- Export Handlers ---
+        const exportJson = () => {
+            return exportJsonFile({
+                ydoc,
+                yMeta,
+                audioFileName: audioFileName.value,
+                comments: commentsList.value
             });
         };
 
-        const exportJson = async () => {
-            if (!ydoc) return;
-            try {
-                const yjsModule = await import('https://esm.sh/yjs@13.6.18');
-                const Y = yjsModule.default || yjsModule;
-                const stateUpdate = Y.encodeStateAsUpdate(ydoc);
-                const base64State = uint8ArrayToBase64(stateUpdate);
-
-                const payload = {
-                    version: '2.0',
-                    transcriptId: yMeta ? yMeta.get('transcriptId') : undefined,
-                    exportedAt: new Date().toISOString(),
-                    audioFileName: audioFileName.value || '',
-                    comments: commentsList.value,
-                    _yjs_state: base64State
-                };
-
-                const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                const baseName = (audioFileName.value || 'session').replace(/\.[^/.]+$/, '');
-                a.href = url;
-                a.download = `${baseName}_annotated.json`;
-                a.click();
-                URL.revokeObjectURL(url);
-            } catch (err) {
-                console.error('Export error:', err);
-            }
+        const exportWord = () => {
+            return exportWordFile({
+                editor,
+                comments: commentsList.value,
+                audioFileName: audioFileName.value
+            });
         };
 
-        const buildDocxComments = (comments) => {
-            const commentIdMap = new Map();
-            let nextId = 1;
-            const docxComments = [];
-
-            for (const c of (comments || [])) {
-                if (!c || !c.id) continue;
-                const numId = nextId++;
-                commentIdMap.set(c.id, numId);
-
-                const children = [];
-                if (c.text) children.push(new Paragraph({ text: c.text }));
-                if (Array.isArray(c.replies)) {
-                    for (const reply of c.replies) {
-                        if (!reply) continue;
-                        children.push(new Paragraph({ text: `[${reply.author || 'User'}]: ${reply.text || ''}` }));
-                    }
-                }
-                if (children.length === 0) children.push(new Paragraph({ text: '' }));
-
-                let parsedDate = undefined;
-                if (c.createdAt) {
-                    const d = new Date(c.createdAt);
-                    if (!isNaN(d.getTime())) parsedDate = d;
-                }
-
-                docxComments.push({
-                    id: numId,
-                    author: c.author || 'User',
-                    date: parsedDate,
-                    children
-                });
-            }
-            return { commentIdMap, docxComments, getNextId: () => nextId++ };
-        };
-
-        const makeDocxTextRun = (inlineNode) => {
-            const runOptions = { text: inlineNode.text || '' };
-            if (inlineNode.marks && inlineNode.marks.length > 0) {
-                const colorMark = inlineNode.marks.find(m => m.type === 'textColor');
-                if (colorMark?.attrs?.color) {
-                    runOptions.color = colorMark.attrs.color.replace('#', '');
-                }
-                const tcMark = inlineNode.marks.find(m => m.type === 'timecode');
-                if (tcMark) {
-                    runOptions.shading = { fill: 'F3F4F6' };
-                }
-                if (inlineNode.marks.some(m => m.type === 'bold')) runOptions.bold = true;
-                if (inlineNode.marks.some(m => m.type === 'underline')) runOptions.underline = {};
-                if (inlineNode.marks.some(m => m.type === 'italic')) runOptions.italics = true;
-                if (inlineNode.marks.some(m => m.type === 'strike')) runOptions.strike = true;
-            }
-            return new TextRun(runOptions);
-        };
-
-        const exportWord = async () => {
-            if (!editor) return;
-            try {
-                const editorData = editor.getJSON();
-                const { commentIdMap, docxComments, getNextId } = buildDocxComments(commentsList.value);
-
-                const docxParagraphs = [];
-                const contentNodes = editorData?.content || [];
-                const referencedCommentIds = new Set();
-                let docxLineIndex = 1;
-
-                for (const node of contentNodes) {
-                    const paragraphChildren = [];
-
-                    if (node.type === 'paragraph') {
-                        const lineLabel = String(docxLineIndex++).padStart(3, '0');
-                        paragraphChildren.push(new TextRun({
-                            text: `${lineLabel}  `,
-                            color: '94a3b8',
-                            font: 'Consolas'
-                        }));
-                    }
-
-                    const inlineNodes = node.content || [];
-
-                    for (let i = 0; i < inlineNodes.length; i++) {
-                        const child = inlineNodes[i];
-                        if (child.type !== 'text') {
-                            if (child.type === 'hardBreak') {
-                                paragraphChildren.push(new TextRun({ break: 1 }));
-                            }
-                            continue;
-                        }
-
-                        const commentMark = child.marks?.find(m => m.type === 'comment');
-                        const commentId = commentMark?.attrs?.commentId;
-
-                        let numericId = null;
-                        if (commentId) {
-                            if (!commentIdMap.has(commentId)) {
-                                const newNumId = getNextId();
-                                commentIdMap.set(commentId, newNumId);
-                                docxComments.push({
-                                    id: newNumId,
-                                    author: 'User',
-                                    date: new Date(),
-                                    children: [new Paragraph({ text: '' })]
-                                });
-                            }
-                            numericId = commentIdMap.get(commentId);
-                        }
-
-                        if (numericId !== null && numericId !== undefined) {
-                            if (referencedCommentIds.has(numericId)) {
-                                const orig = docxComments.find(c => c.id === numericId);
-                                const freshNumId = getNextId();
-                                docxComments.push({
-                                    id: freshNumId,
-                                    author: orig?.author || 'User',
-                                    date: orig?.date,
-                                    children: orig?.children || [new Paragraph({ text: '' })]
-                                });
-                                numericId = freshNumId;
-                            }
-                            referencedCommentIds.add(numericId);
-
-                            paragraphChildren.push(new CommentRangeStart(numericId));
-                            paragraphChildren.push(makeDocxTextRun(child));
-
-                            while (i + 1 < inlineNodes.length) {
-                                const nextChild = inlineNodes[i + 1];
-                                if (nextChild.type !== 'text') break;
-                                const nextCommentMark = nextChild.marks?.find(m => m.type === 'comment');
-                                const nextCommentId = nextCommentMark?.attrs?.commentId;
-                                if (nextCommentId !== commentId) break;
-
-                                i++;
-                                paragraphChildren.push(makeDocxTextRun(nextChild));
-                            }
-
-                            paragraphChildren.push(new CommentRangeEnd(numericId));
-                            paragraphChildren.push(new CommentReference(numericId));
-                        } else {
-                            paragraphChildren.push(makeDocxTextRun(child));
-                        }
-                    }
-
-                    const paragraphOptions = { children: paragraphChildren };
-                    if (node.attrs?.textAlign) {
-                        paragraphOptions.alignment = node.attrs.textAlign === 'justify' ? 'both' : node.attrs.textAlign;
-                    }
-                    if (node.type === 'heading') {
-                        const level = node.attrs?.level || 1;
-                        paragraphOptions.heading = `Heading${level}`;
-                    }
-
-                    docxParagraphs.push(new Paragraph(paragraphOptions));
-                }
-
-                if (docxParagraphs.length === 0) {
-                    docxParagraphs.push(new Paragraph({ text: '' }));
-                }
-
-                const docOptions = {
-                    sections: [{ children: docxParagraphs }]
-                };
-                if (docxComments.length > 0) {
-                    docOptions.comments = { children: docxComments };
-                }
-
-                const doc = new Document(docOptions);
-                const blob = await Packer.toBlob(doc);
-
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                const baseName = (audioFileName.value || 'session').replace(/\.[^/.]+$/, '');
-                a.href = url;
-                a.download = `${baseName}_transcript.docx`;
-                a.click();
-                URL.revokeObjectURL(url);
-            } catch (err) {
-                console.error('Word export error:', err);
-            }
-        };
-
-        const handleProposalFileChange = (event) => {
+        // --- Proposals Handlers ---
+        const handleProposalFileChange = async (event) => {
             const file = event.target?.files?.[0];
             if (!file) return;
-
-            const reader = new FileReader();
-            reader.onload = (e) => {
-                try {
-                    const parsed = JSON.parse(e.target.result);
-                    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed) || !parsed._yjs_state) {
-                        alert(t.value('error_v2_required'));
-                        event.target.value = '';
-                        return;
-                    }
-
-                    const currentTranscriptId = yMeta ? yMeta.get('transcriptId') : null;
-                    const fileTranscriptId = parsed.transcriptId;
-                    if (!currentTranscriptId || !fileTranscriptId || currentTranscriptId !== fileTranscriptId) {
-                        alert(t.value('error_different_baseline'));
-                        event.target.value = '';
-                        return;
-                    }
-
-                    const proposal = {
-                        id: 'prop_' + Date.now(),
-                        author: userName.value.trim() || 'Guest',
-                        fileName: file.name,
-                        yjsState: parsed._yjs_state,
-                        comments: parsed.comments || [],
-                        createdAt: new Date().toISOString(),
-                        status: 'pending'
-                    };
-
-                    if (yProposals) {
-                        yProposals.set('active', proposal);
-                        alert(t.value('proposal_sent_notice'));
-                    }
-                } catch (err) {
-                    console.error('Failed to parse proposal json:', err);
-                    alert(t.value('error_v2_required'));
-                } finally {
-                    event.target.value = '';
+            try {
+                const currentTranscriptId = yMeta ? yMeta.get('transcriptId') : null;
+                const proposal = await parseProposalFile(file, {
+                    currentTranscriptId,
+                    userName: userName.value,
+                    t: t.value
+                });
+                if (yProposals) {
+                    yProposals.set('active', proposal);
+                    alert(t.value('proposal_sent_notice'));
                 }
-            };
-            reader.readAsText(file);
+            } catch (err) {
+                console.error('Failed to parse proposal json:', err);
+                alert(err.message || t.value('error_v2_required'));
+            } finally {
+                event.target.value = '';
+            }
         };
 
         const previewProposal = async () => {
@@ -1964,29 +592,20 @@ createApp({
             const proposal = yProposals.get('active');
             if (!proposal || !proposal.yjsState) return;
 
-            baselineSnapshot.value = {
-                editorJson: editor.getJSON(),
-                comments: JSON.parse(JSON.stringify(commentsList.value)),
-                oldCommentIds: new Set(commentsList.value.map(c => c.id)),
-                oldReplyIds: new Set(commentsList.value.flatMap(c => (c.replies || []).map(r => r.id)))
-            };
-
-            yProposals.set('active', {
-                ...proposal,
-                status: 'previewing'
+            const snapshot = await previewProposalWorkflow({
+                editor,
+                ydoc,
+                yComments,
+                proposal,
+                commentsList: commentsList.value
             });
 
-            try {
-                const yjsModule = await import('https://esm.sh/yjs@13.6.18');
-                const Y = yjsModule.default || yjsModule;
-                const update = base64ToUint8Array(proposal.yjsState);
-                Y.applyUpdate(ydoc, update);
-
-                if (yComments && proposal.comments && Array.isArray(proposal.comments)) {
-                    mergeCommentsData(yComments, proposal.comments);
-                }
-            } catch (err) {
-                console.error('Failed to apply preview update:', err);
+            if (snapshot) {
+                baselineSnapshot.value = snapshot;
+                yProposals.set('active', {
+                    ...proposal,
+                    status: 'previewing'
+                });
             }
         };
 
@@ -1999,28 +618,14 @@ createApp({
 
         const rejectProposal = () => {
             if (baselineSnapshot.value) {
-                if (editor && baselineSnapshot.value.editorJson) {
-                    isInternalFormatting = true;
-                    try {
-                        editor.commands.setContent(baselineSnapshot.value.editorJson);
-                    } finally {
-                        isInternalFormatting = false;
-                    }
-                }
-                if (yComments && ydoc) {
-                    ydoc.transact(() => {
-                        const currentKeys = Array.from(yComments.keys());
-                        for (const key of currentKeys) {
-                            yComments.delete(key);
-                        }
-                        if (Array.isArray(baselineSnapshot.value.comments)) {
-                            baselineSnapshot.value.comments.forEach(comment => {
-                                yComments.set(comment.id, comment);
-                            });
-                        }
-                    });
-                    updateCommentsFromYjs();
-                }
+                rejectProposalWorkflow({
+                    editor,
+                    ydoc,
+                    yComments,
+                    baselineSnapshot: baselineSnapshot.value,
+                    setFormattingFlag: (val) => { isInternalFormatting = val; }
+                });
+                updateCommentsFromYjs();
                 baselineSnapshot.value = null;
             }
             if (yProposals) {
@@ -2028,6 +633,7 @@ createApp({
             }
         };
 
+        // --- Editor Formatting Handlers ---
         const setAlignment = (align) => {
             if (!editor) return;
             isInternalFormatting = true;
@@ -2044,14 +650,40 @@ createApp({
             }
         };
 
+        const toggleBold = () => {
+            if (editor) editor.chain().focus().toggleBold().run();
+        };
+
+        const toggleUnderline = () => {
+            if (editor) editor.chain().focus().toggleUnderline().run();
+        };
+
+        const toggleTextEditing = () => {
+            if (!isTextEditingEnabled.value) {
+                const ok = window.confirm(t.value('confirm_enable_text_edit'));
+                if (ok) {
+                    isTextEditingEnabled.value = true;
+                }
+            } else {
+                isTextEditingEnabled.value = false;
+            }
+        };
+
+
+        // --- Player, Spectrogram, Loop & Video Handlers ---
+        const isLoopMode = ref(false);
+        const hasActiveLoop = ref(false);
+        const isDraggingWave = ref(false);
+        let loopTimeout = null;
+
         const initSpectrogram = () => {
             if (!ws) return;
             if (activeSpectrogramPlugin) {
                 try { activeSpectrogramPlugin.destroy(); } catch (e) {}
             }
-            activeSpectrogramPlugin = Spectrogram.create({
-                labels: false, height: 120, splitChannels: false,
-                frequencyMin: freqMin.value, frequencyMax: freqMax.value, fftSamples: 2048
+            activeSpectrogramPlugin = createSpectrogramPlugin({
+                freqMin: freqMin.value,
+                freqMax: freqMax.value
             });
             ws.registerPlugin(activeSpectrogramPlugin);
         };
@@ -2068,69 +700,118 @@ createApp({
             initSpectrogram();
         };
 
-        const getScrollContainer = () => {
-            if (!ws) return null;
-            const wrapper = ws.getWrapper();
-            return wrapper ? wrapper.parentElement : null;
-        };
-
         const initPlayer = async () => {
             await nextTick();
-            regionsPlugin = RegionsPlugin.create();
-            const wsConfig = {
-                container: waveformRef.value, waveColor: '#60a5fa', progressColor: '#2563eb', cursorColor: '#ef4444',
-                cursorWidth: 2, height: 80, interact: false, autoCenter: autoScroll.value, plugins: [regionsPlugin]
-            };
-
             if (isVideoMode.value && videoRef.value) {
                 videoRef.value.src = audioUrl.value;
-                wsConfig.media = videoRef.value;
-            } else {
-                wsConfig.url = audioUrl.value;
             }
+            const playerObj = createPlayer({
+                container: waveformRef.value,
+                media: isVideoMode.value ? videoRef.value : null,
+                audioUrl: audioUrl.value,
+                autoCenter: autoScroll.value,
+                isVideo: isVideoMode.value,
+                onReady: () => { isAudioReady.value = true; },
+                onPlay: () => { isPlaying.value = true; },
+                onPause: () => { isPlaying.value = false; },
+                onTimeUpdate: (time) => { currentTime.value = time; },
+                onRegionCreated: (region) => {
+                    if (activeLoopRegion && activeLoopRegion !== region) activeLoopRegion.remove();
+                    activeLoopRegion = region;
+                    hasActiveLoop.value = true;
+                },
+                onRegionUpdated: () => { clearTimeout(loopTimeout); }
+            });
+            ws = playerObj.ws;
+            regionsPlugin = playerObj.regionsPlugin;
 
-            ws = WaveSurfer.create(wsConfig);
-
-            initSpectrogram();
-            ws.on('ready', () => { isAudioReady.value = true; });
-            ws.on('play', () => { isPlaying.value = true; });
-            ws.on('pause', () => { isPlaying.value = false; });
-            ws.on('timeupdate', (time) => { currentTime.value = time; });
             ws.on('seeking', (time) => {
                 currentTime.value = time;
                 if (highlightActiveSegment.value) {
-                    updateActiveSegmentHighlight(time);
+                    updateSegmentHighlight(time);
                 }
             });
 
-            regionsPlugin.on('region-created', (region) => {
-                if (activeLoopRegion && activeLoopRegion !== region) activeLoopRegion.remove();
-                activeLoopRegion = region;
-                hasActiveLoop.value = true;
-            });
-            regionsPlugin.on('region-updated', () => { clearTimeout(loopTimeout); });
+            initSpectrogram();
         };
 
-        const togglePiP = async () => {
-            if (!videoRef.value) return;
-            try {
-                if (document.pictureInPictureElement) {
-                    await document.exitPictureInPicture();
-                } else if (document.pictureInPictureEnabled) {
-                    await videoRef.value.requestPictureInPicture();
+        const waveInteraction = createWaveInteraction({
+            getWs: () => ws,
+            getIsAudioReady: () => isAudioReady.value,
+            getIsLoopMode: () => isLoopMode.value,
+            getScrollContainer: () => getWaveScrollContainer(ws),
+            onTimeChange: (newTime) => { currentTime.value = newTime; },
+            onSegmentHighlight: (newTime) => {
+                if (highlightActiveSegment.value) updateSegmentHighlight(newTime);
+            },
+            onDraggingChange: (val) => { isDraggingWave.value = val; },
+            zoomIn: () => zoomIn(),
+            zoomOut: () => zoomOut()
+        });
+
+        const onWaveWheel = waveInteraction.onWaveWheel;
+        const onWavePointerDown = waveInteraction.onWavePointerDown;
+        const onWavePointerMove = waveInteraction.onWavePointerMove;
+        const onWavePointerUp = waveInteraction.onWavePointerUp;
+
+        const togglePlay = () => {
+            if (!ws) return;
+            if (isPlaying.value) {
+                ws.pause();
+                clearTimeout(loopTimeout);
+            } else {
+                if (isLoopMode.value && activeLoopRegion) {
+                    if (currentTime.value < activeLoopRegion.start || currentTime.value >= activeLoopRegion.end) {
+                        ws.setTime(activeLoopRegion.start);
+                    }
                 }
-            } catch (e) {
-                console.error('PiP error:', e);
-                alert('Picture-in-Picture is not supported or blocked by the browser.');
+                ws.play();
             }
         };
+
+        const zoomIn = () => { zoomLevel.value = Math.min(500, Number(zoomLevel.value) + zoomStep); onZoom(); };
+        const zoomOut = () => { zoomLevel.value = Math.max(10, Number(zoomLevel.value) - zoomStep); onZoom(); };
+
+        const onZoom = () => {
+            if (!ws) return;
+            ws.zoom(Number(zoomLevel.value));
+            clearTimeout(zoomRedrawTimer);
+            zoomRedrawTimer = setTimeout(() => { initSpectrogram(); }, 300);
+        };
+
+        const jumpTo = (time) => {
+            if (ws) {
+                ws.setTime(time);
+                currentTime.value = time;
+                if (highlightActiveSegment.value) {
+                    updateSegmentHighlight(time);
+                }
+                if (!isPlaying.value) ws.play();
+            }
+        };
+
+        const toggleLoopMode = () => {
+            isLoopMode.value = !isLoopMode.value;
+            clearTimeout(loopTimeout);
+
+            if (isLoopMode.value) {
+                if (ws && isPlaying.value) ws.pause();
+                if (regionsPlugin) disableDragSelectionFn = regionsPlugin.enableDragSelection({ color: 'rgba(147, 51, 234, 0.35)' });
+            } else {
+                if (disableDragSelectionFn) { disableDragSelectionFn(); disableDragSelectionFn = null; }
+                if (regionsPlugin) regionsPlugin.clearRegions();
+                activeLoopRegion = null;
+                hasActiveLoop.value = false;
+            }
+        };
+
+
+        const togglePiP = () => playerTogglePiP(videoRef.value);
 
         const onVideoPointerDown = (e) => {
             if (Number(videoZoom.value) > 1) {
                 isPanningVideo.value = true;
-                try {
-                    e.currentTarget.setPointerCapture(e.pointerId);
-                } catch (_) {}
+                try { e.currentTarget.setPointerCapture(e.pointerId); } catch (_) {}
             }
         };
 
@@ -2146,9 +827,7 @@ createApp({
         const onVideoPointerUp = (e) => {
             if (isPanningVideo.value) {
                 isPanningVideo.value = false;
-                try {
-                    e.currentTarget.releasePointerCapture(e.pointerId);
-                } catch (_) {}
+                try { e.currentTarget.releasePointerCapture(e.pointerId); } catch (_) {}
             }
         };
 
@@ -2163,69 +842,42 @@ createApp({
             }
         });
 
-        const toggleTextEditing = () => {
-            if (!isTextEditingEnabled.value) {
-                const ok = window.confirm(t.value('confirm_enable_text_edit'));
-                if (ok) {
-                    isTextEditingEnabled.value = true;
+        watch(autoScroll, (newVal) => { if (ws) ws.setOptions({ autoCenter: newVal }); });
+
+        watch(currentTime, async (newTime) => {
+            if (highlightActiveSegment.value) {
+                updateSegmentHighlight(newTime);
+            }
+            if (isLoopMode.value && isPlaying.value && activeLoopRegion) {
+                if (newTime >= activeLoopRegion.end) {
+                    ws.pause();
+                    loopTimeout = setTimeout(() => {
+                        if (isLoopMode.value && activeLoopRegion) {
+                            ws.setTime(activeLoopRegion.start);
+                            ws.play();
+                        }
+                    }, 1000);
                 }
-            } else {
-                isTextEditingEnabled.value = false;
             }
+        });
+
+        // --- Popups Handlers ---
+        const togglePeersList = () => { showPeersList.value = !showPeersList.value; };
+        const closePopups = () => {
+            showPeersList.value = false;
+            showHighlightPicker.value = false;
         };
 
-        const toggleBold = () => {
-            if (editor) editor.chain().focus().toggleBold().run();
-        };
 
-        const toggleUnderline = () => {
-            if (editor) editor.chain().focus().toggleUnderline().run();
-        };
-
-        const extractNodeText = (node) => {
-            if (!node) return '';
-            if (node.text) return node.text;
-            if (Array.isArray(node.content)) {
-                return node.content.map(extractNodeText).join('');
-            }
-            return '';
-        };
-
+        // --- Offline Merge Workspace Handlers ---
         const processMergeFiles = async (files) => {
             for (const file of files) {
-                if (!file.name.endsWith('.json')) {
-                    alert(t.value('error_v2_required'));
-                    continue;
-                }
                 try {
-                    const text = await file.text();
-                    const parsed = JSON.parse(text);
-                    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed) || !parsed._yjs_state) {
-                        alert(file.name + ': ' + t.value('error_v2_required'));
-                        continue;
-                    }
-
-                    if (mergeFiles.value.length > 0) {
-                        const baseId = mergeFiles.value[0].transcriptId;
-                        if (baseId && parsed.transcriptId && baseId !== parsed.transcriptId) {
-                            const proceed = window.confirm(t.value('merge_confirm_different_transcripts', { file: file.name }));
-                            if (!proceed) continue;
-                        }
-                    }
-
-                    mergeFiles.value.push({
-                        id: 'mf_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6),
-                        file: file,
-                        name: file.name,
-                        size: (file.size / 1024).toFixed(1) + ' KB',
-                        parsed: parsed,
-                        transcriptId: parsed.transcriptId || '',
-                        commentsCount: (parsed.comments || []).length,
-                        author: (parsed.comments && parsed.comments[0]?.author) || `Peer #${mergeFiles.value.length + 1}`
-                    });
+                    const item = await parseMergeFileInput(file, mergeFiles.value, t.value);
+                    if (item) mergeFiles.value.push(item);
                 } catch (err) {
                     console.error('Error reading merge file:', err);
-                    alert(file.name + ': ' + err.message);
+                    alert(err.message);
                 }
             }
         };
@@ -2255,167 +907,36 @@ createApp({
             mergeFiles.value.splice(index, 1);
         };
 
-        const rebuildMergePreview = () => {
-            if (!mergeEditorInstance || !mergeBaseParagraphs) return;
-            try {
-                const content = mergeBaseParagraphs.map(p => JSON.parse(JSON.stringify(p)));
-                const acceptedChanges = mergeChanges.value.filter(c => c.type === 'transcript' && c.status === 'accepted');
-
-                for (const ch of acceptedChanges) {
-                    if (ch.diffType !== 'added' && ch.newNode && ch.paragraphIndex < content.length) {
-                        content[ch.paragraphIndex] = JSON.parse(JSON.stringify(ch.newNode));
-                    }
-                }
-
-                const addedChanges = acceptedChanges
-                    .filter(ch => ch.diffType === 'added' && ch.newNode)
-                    .sort((a, b) => a.paragraphIndex - b.paragraphIndex);
-
-                for (const ch of addedChanges) {
-                    if (ch.paragraphIndex <= content.length) {
-                        content.splice(ch.paragraphIndex, 0, JSON.parse(JSON.stringify(ch.newNode)));
-                    } else {
-                        content.push(JSON.parse(JSON.stringify(ch.newNode)));
-                    }
-                }
-
-                isInternalFormatting = true;
-                mergeEditorInstance.commands.setContent({ type: 'doc', content });
-                isInternalFormatting = false;
-            } catch (e) {
-                console.error('Error rebuilding merge preview:', e);
-            }
+        const triggerRebuildMergePreview = () => {
+            rebuildMergePreview({
+                mergeEditorInstance,
+                mergeBaseParagraphs,
+                mergeChanges: mergeChanges.value
+            });
         };
-        const applyChangeToPreview = rebuildMergePreview;
 
         const acceptChange = (changeId) => {
             const change = mergeChanges.value.find(c => c.id === changeId);
             if (!change) return;
             change.status = 'accepted';
-            rebuildMergePreview();
+            triggerRebuildMergePreview();
         };
 
         const rejectChange = (changeId) => {
             const change = mergeChanges.value.find(c => c.id === changeId);
             if (!change) return;
             change.status = 'rejected';
-            rebuildMergePreview();
+            triggerRebuildMergePreview();
         };
 
         const acceptAllChanges = () => {
-            mergeChanges.value.forEach(c => {
-                c.status = 'accepted';
-            });
-            rebuildMergePreview();
+            mergeChanges.value.forEach(c => { c.status = 'accepted'; });
+            triggerRebuildMergePreview();
         };
 
         const rejectAllChanges = () => {
-            mergeChanges.value.forEach(c => {
-                c.status = 'rejected';
-            });
-            rebuildMergePreview();
-        };
-
-        const detectFileChanges = (kParagraphs, kComments, fileK, fIdx, baseParagraphs, baseCommentsMap) => {
-            const changes = [];
-            const maxLen = Math.max(baseParagraphs.length, kParagraphs.length);
-            for (let pIdx = 0; pIdx < maxLen; pIdx++) {
-                const baseP = baseParagraphs[pIdx];
-                const newP = kParagraphs[pIdx];
-
-                if (!baseP && newP) {
-                    changes.push({
-                        id: `p_${fIdx}_${pIdx}`,
-                        type: 'transcript',
-                        sourceFileIndex: fIdx + 1,
-                        sourceFileName: fileK.name,
-                        sourceAuthor: fileK.author,
-                        paragraphIndex: pIdx,
-                        lineNumber: pIdx + 1,
-                        diffType: 'added',
-                        baseText: '',
-                        newText: extractNodeText(newP),
-                        baseNode: null,
-                        newNode: newP,
-                        status: 'pending'
-                    });
-                } else if (baseP && newP && JSON.stringify(baseP) !== JSON.stringify(newP)) {
-                    const baseText = extractNodeText(baseP);
-                    const newText = extractNodeText(newP);
-                    changes.push({
-                        id: `p_${fIdx}_${pIdx}`,
-                        type: 'transcript',
-                        sourceFileIndex: fIdx + 1,
-                        sourceFileName: fileK.name,
-                        sourceAuthor: fileK.author,
-                        paragraphIndex: pIdx,
-                        lineNumber: pIdx + 1,
-                        diffType: baseText !== newText ? 'text' : 'format',
-                        baseText: baseText,
-                        newText: newText,
-                        baseNode: baseP,
-                        newNode: newP,
-                        status: 'pending'
-                    });
-                }
-            }
-
-            for (const c of kComments) {
-                if (!c || !c.id) continue;
-                if (!baseCommentsMap.has(c.id)) {
-                    changes.push({
-                        id: `c_${fIdx}_${c.id}`,
-                        type: 'comment',
-                        sourceFileIndex: fIdx + 1,
-                        sourceFileName: fileK.name,
-                        sourceAuthor: c.author || fileK.author,
-                        commentId: c.id,
-                        commentObj: c,
-                        quote: c.quote || '',
-                        text: c.text || '',
-                        isNew: true,
-                        status: 'pending'
-                    });
-                } else {
-                    const baseC = baseCommentsMap.get(c.id);
-                    if (c.text && c.text !== baseC.text) {
-                        changes.push({
-                            id: `c_edit_${fIdx}_${c.id}`,
-                            type: 'comment',
-                            sourceFileIndex: fIdx + 1,
-                            sourceFileName: fileK.name,
-                            sourceAuthor: c.author || fileK.author,
-                            commentId: c.id,
-                            commentObj: c,
-                            quote: c.quote || '',
-                            baseText: baseC.text || '',
-                            text: c.text,
-                            isNew: false,
-                            status: 'pending'
-                        });
-                    }
-
-                    const baseReplies = new Set((baseC.replies || []).map(r => r.id));
-                    for (const r of (c.replies || [])) {
-                        if (r && r.id && !baseReplies.has(r.id)) {
-                            changes.push({
-                                id: `r_${fIdx}_${c.id}_${r.id}`,
-                                type: 'reply',
-                                sourceFileIndex: fIdx + 1,
-                                sourceFileName: fileK.name,
-                                sourceAuthor: r.author || fileK.author,
-                                commentId: c.id,
-                                replyId: r.id,
-                                replyObj: r,
-                                parentQuote: c.quote || '',
-                                text: r.text || '',
-                                status: 'pending'
-                            });
-                        }
-                    }
-                }
-            }
-            return changes;
+            mergeChanges.value.forEach(c => { c.status = 'rejected'; });
+            triggerRebuildMergePreview();
         };
 
         const openMergeEditor = async () => {
@@ -2423,87 +944,28 @@ createApp({
                 alert(t.value('merge_need_min_files'));
                 return;
             }
-
-            const yjsModule = await import('https://esm.sh/yjs@13.6.18');
-            const Y = yjsModule.default || yjsModule;
-
-            const file1 = mergeFiles.value[0];
-            mergeBaselineYDoc = new Y.Doc();
-            Y.applyUpdate(mergeBaselineYDoc, base64ToUint8Array(file1.parsed._yjs_state));
-
-            const tempEditor1 = new Editor({
-                extensions: [
-                    StarterKit.configure({ history: false }),
-                    Underline,
-                    TimecodeMark,
-                    CommentMark,
-                    TextColorMark,
-                    TextAlign.configure({ types: ['heading', 'paragraph'] }),
-                    Collaboration.configure({ document: mergeBaselineYDoc, field: 'emca-transcript' })
-                ]
-            });
-            const baseJson = tempEditor1.getJSON();
-            const baseParagraphs = baseJson?.content || [];
-            mergeBaseParagraphs = JSON.parse(JSON.stringify(baseParagraphs));
-            tempEditor1.destroy();
-
-            const baseComments = file1.parsed.comments || [];
-            const baseCommentsMap = new Map(baseComments.map(c => [c.id, c]));
-
-            let allDetectedChanges = [];
-
-            for (let fIdx = 1; fIdx < mergeFiles.value.length; fIdx++) {
-                const fileK = mergeFiles.value[fIdx];
-                const docK = new Y.Doc();
-                Y.applyUpdate(docK, base64ToUint8Array(fileK.parsed._yjs_state));
-
-                const tempEditorK = new Editor({
-                    extensions: [
-                        StarterKit.configure({ history: false }),
-                        Underline,
-                        TimecodeMark,
-                        CommentMark,
-                        TextColorMark,
-                        TextAlign.configure({ types: ['heading', 'paragraph'] }),
-                        Collaboration.configure({ document: docK, field: 'emca-transcript' })
-                    ]
+            try {
+                const res = await initMergeEditorWorkflow({
+                    mergeFiles: mergeFiles.value,
+                    previewElement: null,
+                    t: t.value
                 });
-                const kJson = tempEditorK.getJSON();
-                const kParagraphs = kJson?.content || [];
-                tempEditorK.destroy();
-                docK.destroy();
+                mergeChanges.value = res.changes;
+                mergeBaseParagraphs = res.baseParagraphs;
+                mergeBaselineYDoc = res.baselineYDoc;
+                isMergeModeActive.value = true;
 
-                const kComments = fileK.parsed.comments || [];
-                const fileChanges = detectFileChanges(kParagraphs, kComments, fileK, fIdx, baseParagraphs, baseCommentsMap);
-                allDetectedChanges = allDetectedChanges.concat(fileChanges);
-            }
-
-            mergeChanges.value = allDetectedChanges;
-            isMergeModeActive.value = true;
-
-            await nextTick();
-
-            if (mergePreviewRef.value) {
-                if (mergeEditorInstance) mergeEditorInstance.destroy();
-
-                mergeEditorInstance = new Editor({
-                    element: mergePreviewRef.value,
-                    editable: false,
-                    extensions: [
-                        StarterKit.configure({ history: false }),
-                        Underline,
-                        TimecodeMark,
-                        CommentMark,
-                        TextColorMark,
-                        TextAlign.configure({ types: ['heading', 'paragraph'] }),
-                        Collaboration.configure({ document: mergeBaselineYDoc, field: 'emca-transcript' })
-                    ],
-                    editorProps: {
-                        attributes: {
-                            class: 'prose max-w-none focus:outline-none min-h-[500px] leading-relaxed p-4'
-                        }
-                    }
-                });
+                await nextTick();
+                if (mergePreviewRef.value) {
+                    if (mergeEditorInstance) mergeEditorInstance.destroy();
+                    mergeEditorInstance = createMergePreviewEditor({
+                        element: mergePreviewRef.value,
+                        content: mergeBaseParagraphs
+                    });
+                }
+            } catch (err) {
+                console.error('Failed to open merge editor:', err);
+                alert(err.message);
             }
         };
 
@@ -2520,7 +982,7 @@ createApp({
             sessionMode.value = null;
             mergeFiles.value = [];
             mergeChanges.value = [];
-            mergeBaseParagraphs = [];
+            mergeBaseParagraphs = null;
         };
 
         const backToMergeFiles = () => {
@@ -2534,285 +996,41 @@ createApp({
         const saveMergedBaseline = async () => {
             if (mergeFiles.value.length === 0) return;
             try {
-                const yjsModule = await import('https://esm.sh/yjs@13.6.18');
-                const Y = yjsModule.default || yjsModule;
-
-                const file1 = mergeFiles.value[0];
-                const finalDoc = new Y.Doc();
-                Y.applyUpdate(finalDoc, base64ToUint8Array(file1.parsed._yjs_state));
-
-                const finalCommentsMap = finalDoc.getMap('emca-comments');
-                const finalMeta = finalDoc.getMap('emca-meta');
-
-                const allAccepted = mergeChanges.value.length > 0 && mergeChanges.value.every(c => c.status === 'accepted');
-
-                if (allAccepted) {
-                    for (let i = 1; i < mergeFiles.value.length; i++) {
-                        const kUpdate = base64ToUint8Array(mergeFiles.value[i].parsed._yjs_state);
-                        Y.applyUpdate(finalDoc, kUpdate);
-                        if (mergeFiles.value[i].parsed.comments) {
-                            mergeCommentsData(finalCommentsMap, mergeFiles.value[i].parsed.comments);
-                        }
-                    }
-                } else {
-                    if (mergeEditorInstance) {
-                        const finalEditorJson = mergeEditorInstance.getJSON();
-                        const writerEditor = new Editor({
-                            extensions: [
-                                StarterKit.configure({ history: false }),
-                                Underline,
-                                TimecodeMark,
-                                CommentMark,
-                                TextColorMark,
-                                TextAlign.configure({ types: ['heading', 'paragraph'] }),
-                                Collaboration.configure({ document: finalDoc, field: 'emca-transcript' })
-                            ]
-                        });
-                        isInternalFormatting = true;
-                        writerEditor.commands.setContent(finalEditorJson);
-                        isInternalFormatting = false;
-                        writerEditor.destroy();
-                    }
-
-                    const acceptedCommentChanges = mergeChanges.value.filter(c => c.status === 'accepted' && (c.type === 'comment' || c.type === 'reply'));
-                    for (const ac of acceptedCommentChanges) {
-                        if (ac.type === 'comment' && ac.commentObj) {
-                            const existing = finalCommentsMap.get(ac.commentId);
-                            if (!existing) {
-                                finalCommentsMap.set(ac.commentId, ac.commentObj);
-                            } else {
-                                finalCommentsMap.set(ac.commentId, { ...existing, text: ac.text });
-                            }
-                        } else if (ac.type === 'reply' && ac.replyObj) {
-                            const parent = finalCommentsMap.get(ac.commentId);
-                            if (parent) {
-                                const replies = Array.isArray(parent.replies) ? [...parent.replies] : [];
-                                if (!replies.some(r => r.id === ac.replyId)) {
-                                    replies.push(ac.replyObj);
-                                    finalCommentsMap.set(ac.commentId, { ...parent, replies });
-                                }
-                            }
-                        }
-                    }
-                }
-
-                const newTranscriptId = 'tr_' + Date.now();
-                finalMeta.set('transcriptId', newTranscriptId);
-                finalMeta.set('version', '2.0');
-
-                const finalUpdate = Y.encodeStateAsUpdate(finalDoc);
-                const base64State = uint8ArrayToBase64(finalUpdate);
-
-                const exportedComments = [];
-                finalCommentsMap.forEach((val, key) => {
-                    if (val) exportedComments.push({ ...val, id: key });
+                await runSaveMergedBaseline({
+                    mergeFiles: mergeFiles.value,
+                    mergeChanges: mergeChanges.value,
+                    mergeBaseParagraphs
                 });
-
-                const mergedPayload = {
-                    version: '2.0',
-                    transcriptId: newTranscriptId,
-                    exportedAt: new Date().toISOString(),
-                    audioFileName: file1.parsed.audioFileName || '',
-                    comments: exportedComments,
-                    _yjs_state: base64State
-                };
-
-                const blob = new Blob([JSON.stringify(mergedPayload, null, 2)], { type: 'application/json' });
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                const baseName = (file1.name || 'session').replace(/\.[^/.]+$/, '');
-                a.href = url;
-                a.download = `${baseName}_merged_baseline.json`;
-                a.click();
-                URL.revokeObjectURL(url);
-                finalDoc.destroy();
-
-                alert(t.value('merge_saved_success'));
             } catch (err) {
-                console.error('Failed to save merged baseline:', err);
-                alert('Error saving merged baseline: ' + err.message);
+                console.error('Error saving merged baseline:', err);
+                alert(err.message || 'Failed to save merged baseline');
             }
         };
 
         const filteredMergeChanges = computed(() => {
-            return mergeChanges.value.filter(item => {
-                if (mergeFilter.value === 'transcript' && item.type !== 'transcript') return false;
-                if (mergeFilter.value === 'comments' && item.type !== 'comment') return false;
-                if (mergeFilter.value === 'replies' && item.type !== 'reply') return false;
-                if (mergeSearchQuery.value && mergeSearchQuery.value.trim()) {
-                    const q = mergeSearchQuery.value.toLowerCase();
-                    const textToSearch = `${item.sourceAuthor || ''} ${item.sourceFileName || ''} ${item.baseText || ''} ${item.newText || ''} ${item.text || ''} ${item.quote || ''}`.toLowerCase();
-                    if (!textToSearch.includes(q)) return false;
-                }
-                return true;
-            });
+            return filterMergeChanges(mergeChanges.value, mergeFilter.value, mergeSearchQuery.value);
         });
 
         const mergeChangesSummary = computed(() => {
-            const total = mergeChanges.value.length;
-            const accepted = mergeChanges.value.filter(c => c.status === 'accepted').length;
-            const rejected = mergeChanges.value.filter(c => c.status === 'rejected').length;
-            const pending = mergeChanges.value.filter(c => c.status === 'pending').length;
-            const transcript = mergeChanges.value.filter(c => c.type === 'transcript').length;
-            const comments = mergeChanges.value.filter(c => c.type === 'comment').length;
-            const replies = mergeChanges.value.filter(c => c.type === 'reply').length;
-            return { total, accepted, rejected, pending, transcript, comments, replies };
+            return summarizeMergeChanges(mergeChanges.value);
         });
 
-        const onWaveWheel = (e) => {
-            if (!ws || !isAudioReady.value) return;
-            if (e.ctrlKey || e.metaKey) {
-                e.preventDefault();
-                if (e.deltaY > 0) zoomOut(); else zoomIn();
-            } else {
-                const sc = getScrollContainer();
-                if (sc) {
-                    sc.scrollLeft += (e.deltaX !== 0 ? e.deltaX : e.deltaY);
-                    e.preventDefault();
-                }
-            }
-        };
 
-        const onWavePointerDown = (e) => {
-            if (!ws || !isAudioReady.value || isLoopMode.value) return;
-            isDraggingWave.value = true;
-            wasDragged = false;
-            pointerStartX = e.clientX;
-            const sc = getScrollContainer();
-            initialScrollLeft = sc ? sc.scrollLeft : 0;
-            e.currentTarget.setPointerCapture(e.pointerId);
-        };
-
-        const onWavePointerMove = (e) => {
-            if (!isDraggingWave.value || isLoopMode.value || !ws) return;
-            const dx = e.clientX - pointerStartX;
-            if (Math.abs(dx) > 5) wasDragged = true;
-            if (wasDragged) {
-                const sc = getScrollContainer();
-                if (sc) sc.scrollLeft = initialScrollLeft - dx;
-            }
-        };
-
-        const onWavePointerUp = (e) => {
-            if (!isDraggingWave.value) return;
-            isDraggingWave.value = false;
-            e.currentTarget.releasePointerCapture(e.pointerId);
-
-            if (!wasDragged && !isLoopMode.value && ws) {
-                const sc = getScrollContainer();
-                const wrapper = ws.getWrapper();
-                if (sc && wrapper) {
-                    const rect = sc.getBoundingClientRect();
-                    const clickX = e.clientX - rect.left;
-                    const trueX = sc.scrollLeft + clickX;
-                    const totalWidth = wrapper.offsetWidth;
-                    if (totalWidth > 0) {
-                        const targetRatio = Math.max(0, Math.min(1, trueX / totalWidth));
-                        const newTime = targetRatio * ws.getDuration();
-                        ws.setTime(newTime);
-                        currentTime.value = newTime;
-                        if (highlightActiveSegment.value) {
-                            updateActiveSegmentHighlight(newTime);
-                        }
-                    }
-                }
-            }
-            wasDragged = false;
-        };
-
-        onUnmounted(() => { 
+        // --- Lifecycle Cleanup ---
+        onUnmounted(() => {
             clearTimeout(loopTimeout);
             clearTimeout(zoomRedrawTimer);
             if (editor) editor.destroy();
+            if (activeSpectrogramPlugin) {
+                try { activeSpectrogramPlugin.destroy(); } catch (_) {}
+            }
             if (mergeEditorInstance) mergeEditorInstance.destroy();
-            if (ws) ws.destroy(); 
+            if (ws) ws.destroy();
             if (provider) provider.destroy();
             if (idbProvider) idbProvider.destroy();
             if (ydoc) ydoc.destroy();
             if (mergeBaselineYDoc) mergeBaselineYDoc.destroy();
             if (audioUrl.value) URL.revokeObjectURL(audioUrl.value);
-        });
-
-        const togglePlay = () => { 
-            if (!ws) return;
-            if (isPlaying.value) {
-                ws.pause();
-                clearTimeout(loopTimeout);
-            } else {
-                if (isLoopMode.value && activeLoopRegion) {
-                    if (currentTime.value < activeLoopRegion.start || currentTime.value >= activeLoopRegion.end) {
-                        ws.setTime(activeLoopRegion.start);
-                    }
-                }
-                ws.play();
-            }
-        };
-        
-        const zoomIn = () => { zoomLevel.value = Math.min(500, Number(zoomLevel.value) + zoomStep); onZoom(); };
-        const zoomOut = () => { zoomLevel.value = Math.max(10, Number(zoomLevel.value) - zoomStep); onZoom(); };
-
-        const onZoom = () => { 
-            if (!ws) return;
-            ws.zoom(Number(zoomLevel.value));
-            clearTimeout(zoomRedrawTimer);
-            zoomRedrawTimer = setTimeout(() => { initSpectrogram(); }, 300);
-        };
-
-        const jumpTo = (time) => {
-            if (ws) {
-                ws.setTime(time);
-                currentTime.value = time;
-                if (highlightActiveSegment.value) {
-                    updateActiveSegmentHighlight(time);
-                }
-                if (!isPlaying.value) ws.play();
-            }
-        };
-
-        const toggleLoopMode = () => {
-            isLoopMode.value = !isLoopMode.value;
-            clearTimeout(loopTimeout);
-
-            if (isLoopMode.value) {
-                if (ws && isPlaying.value) ws.pause();
-                if (regionsPlugin) disableDragSelectionFn = regionsPlugin.enableDragSelection({ color: 'rgba(147, 51, 234, 0.35)' });
-            } else {
-                if (disableDragSelectionFn) { disableDragSelectionFn(); disableDragSelectionFn = null; }
-                if (regionsPlugin) regionsPlugin.clearRegions();
-                activeLoopRegion = null;
-                hasActiveLoop.value = false;
-            }
-        };
-
-        const togglePeersList = () => { showPeersList.value = !showPeersList.value; };
-        const closePopups = () => { 
-            showPeersList.value = false; 
-            showHighlightPicker.value = false;
-        };
-        const formatTime = (seconds) => {
-            const m = Math.floor(seconds / 60).toString().padStart(2, '0');
-            const s = Math.floor(seconds % 60).toString().padStart(2, '0');
-            const ms = Math.floor((seconds % 1) * 10).toString();
-            return `${m}:${s}.${ms}`;
-        };
-
-        watch(autoScroll, (newVal) => { if (ws) ws.setOptions({ autoCenter: newVal }); });
-
-        watch(currentTime, async (newTime) => {
-            if (highlightActiveSegment.value) {
-                updateActiveSegmentHighlight(newTime);
-            }
-            if (isLoopMode.value && isPlaying.value && activeLoopRegion) {
-                if (newTime >= activeLoopRegion.end) {
-                    ws.pause();
-                    loopTimeout = setTimeout(() => {
-                        if (isLoopMode.value && activeLoopRegion) {
-                            ws.setTime(activeLoopRegion.start);
-                            ws.play();
-                        }
-                    }, 1000);
-                }
-            }
         });
 
         return {
@@ -2844,3 +1062,4 @@ createApp({
         };
     }
 }).mount('#app');
+
